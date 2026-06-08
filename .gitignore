@@ -8,5 +8,7 @@ config.json
 backup/
 containerization_plan.md
 test.sh
-extension/
+extension/*.js
+extension/*.map
+extension/*.deps
 check_type.dart

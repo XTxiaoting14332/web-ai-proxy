@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "AI Web Proxy",
+  "version": "1.0.0",
+  "description": "Browser-based ai proxy",
+  "permissions": ["clipboardRead", "clipboardWrite", "debugger", "tabs", "storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AI Proxy Settings"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chat.z.ai/*"],
+      "js": ["glm.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["gemini.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["gpt.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://www.doubao.com/*"],
+      "js": ["doubao.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
