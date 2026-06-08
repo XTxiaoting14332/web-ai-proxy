@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   windows:
@@ -38,113 +39,109 @@ jobs:
   linux_amd64:
     runs-on: ubuntu-latest
     steps:
-        - name: Checkout
-          uses: actions/checkout@v4
-        - name: Setup Dart
-          uses: dart-lang/setup-dart@v1
-          with:
-            sdk: stable
-  
-        - name: Compile
-          run: |
-            mkdir dist
-            dart pub get
-            dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-linux-amd64
-  
-        - name: Upload Dist Artifact
-          uses: actions/upload-artifact@v4
-          with:
-            name: web-ai-proxy-linux-amd64
-            path: dist/web-ai-proxy-linux-amd64
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
 
+      - name: Compile
+        run: |
+          mkdir dist
+          dart pub get
+          dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-linux-amd64
+
+      - name: Upload Dist Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ai-proxy-linux-amd64
+          path: dist/web-ai-proxy-linux-amd64
 
   linux_arm64:
     runs-on: ubuntu-latest
     steps:
-        - name: Checkout
-          uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-        - name: Install Dependencies
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install aria2 unzip -y
+          aria2c https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-arm64-release.zip
+          unzip dartsdk-linux-arm64-release.zip
+          rm dartsdk-linux-arm64-release.zip
+
+      - name: Use ARM64 Environment to Compile
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: aarch64
+          distro: ubuntu20.04
           run: |
-            sudo apt update
-            sudo apt install aria2 unzip -y
-            aria2c https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-arm64-release.zip
-            unzip dartsdk-linux-arm64-release.zip
-            rm dartsdk-linux-arm64-release.zip
+            export PATH=$PATH:$GITHUB_WORKSPACE/dart-sdk/bin
+            mkdir dist
+            dart pub get
+            dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-linux-arm64
 
-        - name: Use ARM64 Environment to Compile
-          uses: uraimo/run-on-arch-action@v2
-          with:
-            arch: aarch64
-            distro: ubuntu20.04
-            run: |
-              export PATH=$PATH:$GITHUB_WORKSPACE/dart-sdk/bin
-              mkdir dist
-              dart pub get
-              dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-linux-arm64
-
-        - name: Upload Dist Artifact
-          uses: actions/upload-artifact@v4
-          with:
-            name: web-ai-proxy-linux-arm64
-            path: dist/web-ai-proxy-linux-arm64
-
+      - name: Upload Dist Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ai-proxy-linux-arm64
+          path: dist/web-ai-proxy-linux-arm64
 
   linux_arm:
     runs-on: ubuntu-latest
     steps:
-        - name: Checkout
-          uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-        - name: Install Dependencies
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install aria2 unzip -y
+          aria2c https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-arm-release.zip
+          unzip dartsdk-linux-arm-release.zip
+          rm dartsdk-linux-arm-release.zip
+
+      - name: Use ARM Environment to Compile
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: armv7
+          distro: ubuntu20.04
           run: |
-            sudo apt update
-            sudo apt install aria2 unzip -y
-            aria2c https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-arm-release.zip
-            unzip dartsdk-linux-arm-release.zip
-            rm dartsdk-linux-arm-release.zip
+            export PATH=$PATH:$GITHUB_WORKSPACE/dart-sdk/bin
+            mkdir dist
+            dart pub get
+            dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-linux-arm
 
-        - name: Use ARM Environment to Compile
-          uses: uraimo/run-on-arch-action@v2
-          with:
-            arch: armv7
-            distro: ubuntu20.04
-            run: |
-              export PATH=$PATH:$GITHUB_WORKSPACE/dart-sdk/bin
-              mkdir dist
-              dart pub get
-              dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-linux-arm
-
-        - name: Upload Dist Artifact
-          uses: actions/upload-artifact@v4
-          with:
-            name: web-ai-proxy-linux-arm
-            path: dist/web-ai-proxy-linux-arm
-
+      - name: Upload Dist Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ai-proxy-linux-arm
+          path: dist/web-ai-proxy-linux-arm
 
   macos_M1:
     runs-on: macos-latest
 
     steps:
-        - name: Checkout
-          uses: actions/checkout@v4
-        - name: Setup Dart
-          uses: dart-lang/setup-dart@v1
-          with:
-            sdk: stable
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
 
-        - name: Compile
-          run: |
-            mkdir dist
-            dart pub get
-            dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-macos-M1
+      - name: Compile
+        run: |
+          mkdir dist
+          dart pub get
+          dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-macos-M1
 
-        - name: Upload Dist Artifact
-          uses: actions/upload-artifact@v4
-          with:
-            name: web-ai-proxy-macos-M1
-            path: dist/web-ai-proxy-macos-M1
-
+      - name: Upload Dist Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ai-proxy-macos-M1
+          path: dist/web-ai-proxy-macos-M1
 
   publish_releases:
     name: publish
@@ -196,8 +193,20 @@ jobs:
           name: "web-ai-proxy-linux-arm"
           path: dist/
 
-      - name: Package Extension
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Compile and Package Extension
         run: |
+          dart pub get
+          dart compile js proxy/background.dart -O3 -o extension/background.js
+          dart compile js proxy/doubao.dart -O3 -o extension/doubao.js
+          dart compile js proxy/gemini.dart -O3 -o extension/gemini.js
+          dart compile js proxy/glm.dart -O3 -o extension/glm.js
+          dart compile js proxy/gpt.dart -O3 -o extension/gpt.js
+          dart compile js proxy/popup.dart -O3 -o extension/popup.js
           cd extension
           zip -r ../dist/web-ai-proxy-extension.zip *
           cd ..
@@ -218,3 +227,33 @@ jobs:
             dist/web-ai-proxy-linux-arm
             dist/web-ai-proxy-macos-M1
             dist/web-ai-proxy-extension.zip
+
+  docker:
+    name: build docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Fetch Version
+        run: |
+          sudo snap install yq
+          version=$(yq eval '.version' pubspec.yaml)
+          echo "AIPROXY_VERSION=$version" >> $GITHUB_ENV
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ env.AIPROXY_VERSION }}
