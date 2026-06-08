@@ -13,6 +13,26 @@ Map<String, Completer<Response>> pendingRequests = {};
 Map<String, WebSocketChannel> extensionWebSockets = {};
 Map<String, Future<void>> modelQueues = {};
 
+Map<String, String> sessionUrls = {};
+Map<String, String> currentExtensionUrls = {};
+Map<String, String> pendingSessionKeys = {};
+
+void loadSessions() {
+  final sessionFile = File('userdata/sessions.json');
+  if (sessionFile.existsSync()) {
+    try {
+      sessionUrls = Map<String, String>.from(jsonDecode(sessionFile.readAsStringSync()));
+    } catch (_) {}
+  }
+}
+
+void saveSessions() {
+  final dir = Directory('userdata');
+  if (!dir.existsSync()) dir.createSync(recursive: true);
+  final sessionFile = File('userdata/sessions.json');
+  sessionFile.writeAsStringSync(JsonEncoder.withIndent('  ').convert(sessionUrls));
+}
+
 Middleware customLogRequests() {
   return (Handler innerHandler) {
     return (Request request) async {
@@ -62,6 +82,7 @@ Middleware apiAuthMiddleware(String apiKey) {
 }
 
 void main() {
+  loadSessions();
   runZonedGuarded(
     () async {
       final configFile = File('config.json');
@@ -115,47 +136,68 @@ void main() {
 
           webSocket.stream.listen(
             (message) {
-              if (pendingRequests[model] != null &&
-                  !pendingRequests[model]!.isCompleted) {
-                Logger.debug('Received reply from model: $model');
+              try {
+                final decoded = jsonDecode(message.toString());
+                if (decoded is Map<String, dynamic>) {
+                  if (decoded['action'] == 'register') {
+                    currentExtensionUrls[model] = decoded['url']?.toString() ?? '';
+                    Logger.debug('Model $model registered URL: ${currentExtensionUrls[model]}');
+                    return;
+                  }
 
-                String? thinking;
-                String finalResponse = message.toString();
+                  if (decoded['action'] == 'success' || decoded.containsKey("answer")) {
+                    if (pendingRequests[model] != null && !pendingRequests[model]!.isCompleted) {
+                      String finalResponse = decoded["answer"]?.toString() ?? decoded["response"]?.toString() ?? message.toString();
+                      String? thinking;
+                      if (decoded.containsKey("thinking") && decoded["thinking"].toString().isNotEmpty) {
+                        thinking = decoded["thinking"].toString();
+                      }
 
-                try {
-                  final decoded = jsonDecode(finalResponse);
-                  if (decoded is Map<String, dynamic>) {
-                    if (decoded.containsKey("answer")) {
-                      finalResponse = decoded["answer"].toString();
-                    }
-                    if (decoded.containsKey("thinking") &&
-                        decoded["thinking"].toString().isNotEmpty) {
-                      thinking = decoded["thinking"].toString();
+                      String? newUrl = decoded["url"]?.toString();
+                      if (newUrl != null && pendingSessionKeys[model] != null) {
+                        sessionUrls[pendingSessionKeys[model]!] = newUrl;
+                        currentExtensionUrls[model] = newUrl;
+                        saveSessions();
+                      }
+
+                      final responseBody = {
+                        "status": "success",
+                        "response": finalResponse,
+                      };
+                      if (thinking != null) {
+                        responseBody["thinking"] = thinking;
+                      }
+
+                      final response = Response.ok(
+                        jsonEncode(responseBody),
+                        headers: {'content-type': 'application/json'},
+                      );
+                      pendingRequests[model]!.complete(response);
+                      pendingRequests.remove(model);
                     }
                   }
-                } catch (_) {
-                  // If it's not JSON, treat it as a raw string
                 }
-
-                final responseBody = {
-                  "status": "success",
-                  "response": finalResponse,
-                };
-                if (thinking != null) {
-                  responseBody["thinking"] = thinking;
+              } catch (_) {
+                // Legacy fallback for raw strings
+                if (pendingRequests[model] != null && !pendingRequests[model]!.isCompleted) {
+                  Logger.debug('Received legacy reply from model: $model');
+                  final responseBody = {
+                    "status": "success",
+                    "response": message.toString(),
+                  };
+                  final response = Response.ok(
+                    jsonEncode(responseBody),
+                    headers: {'content-type': 'application/json'},
+                  );
+                  pendingRequests[model]!.complete(response);
+                  pendingRequests.remove(model);
                 }
-
-                final response = Response.ok(
-                  jsonEncode(responseBody),
-                  headers: {'content-type': 'application/json'},
-                );
-                pendingRequests[model]!.complete(response);
-                pendingRequests.remove(model);
               }
             },
             onDone: () {
               Logger.warn('WebSocket connection closed for model: $model');
               extensionWebSockets.remove(model);
+              currentExtensionUrls.remove(model);
             },
             onError: (error) {
               Logger.error('WebSocket error for model $model: $error');
@@ -167,10 +209,32 @@ void main() {
         return handler(request);
       });
 
+      app.delete('/api/chat/session', (Request request) async {
+        final payload = await request.readAsString();
+        final data = jsonDecode(payload);
+        final model = data['model'] ?? 'gemini';
+        final sessionId = data['session_id'];
+        
+        if (sessionId == null) {
+          return Response(400, body: jsonEncode({"error": "Missing session_id"}), headers: {'content-type': 'application/json'});
+        }
+        
+        final sessionKey = "${model}_$sessionId";
+        if (sessionUrls.containsKey(sessionKey)) {
+          sessionUrls.remove(sessionKey);
+          saveSessions();
+          Logger.info('Deleted session: $sessionKey');
+          return Response.ok(jsonEncode({"status": "success", "message": "Session deleted"}), headers: {'content-type': 'application/json'});
+        }
+        return Response.notFound(jsonEncode({"error": "Session not found"}), headers: {'content-type': 'application/json'});
+      });
+
       app.post('/api/chat', (Request request) async {
         final payload = await request.readAsString();
         final data = jsonDecode(payload);
         final model = data['model'] ?? 'gemini';
+        final sessionId = data['session_id'] ?? 'default';
+        final sessionKey = "${model}_$sessionId";
 
         if (extensionWebSockets[model] == null) {
           Logger.error('Chrome plugin not connected for model: $model');
@@ -182,7 +246,7 @@ void main() {
         }
 
         final prompt = data['prompt'] ?? '';
-        Logger.info('Queuing prompt for $model...');
+        Logger.info('Queuing prompt for $model (session: $sessionId)...');
 
         final completer = Completer<Response>();
 
@@ -199,20 +263,57 @@ void main() {
               return;
             }
 
-            Logger.info('Forwarding prompt to $model...');
+            Logger.info('Forwarding prompt to $model (session: $sessionId)...');
             final reqCompleter = Completer<Response>();
             pendingRequests[model] = reqCompleter;
+            pendingSessionKeys[model] = sessionKey;
 
-            extensionWebSockets[model]!.sink.add(prompt);
+            String? targetUrl = sessionUrls[sessionKey];
+            String currentUrl = currentExtensionUrls[model] ?? "";
+            
+            if (targetUrl == null) {
+               if (model == 'doubao') targetUrl = 'https://www.doubao.com/chat/';
+               else if (model == 'gemini') targetUrl = 'https://gemini.google.com/app';
+               else if (model == 'gpt') targetUrl = 'https://chatgpt.com/';
+               else if (model == 'glm') targetUrl = 'https://chat.z.ai/';
+               else if (model == 'dola') targetUrl = 'https://www.dola.com/';
+               else targetUrl = currentUrl;
+            }
+
+            if (currentUrl != targetUrl) {
+               Logger.info('Navigating to target session URL: $targetUrl');
+               extensionWebSockets[model]!.sink.add(jsonEncode({"action": "navigate", "url": targetUrl}));
+               
+               // Wait for WS to reconnect on the new URL
+               int attempts = 0;
+               while (attempts < 50) { // 10 seconds timeout
+                 await Future.delayed(Duration(milliseconds: 200));
+                 if (extensionWebSockets[model] != null && currentExtensionUrls[model] != null) {
+                    if (currentExtensionUrls[model] == targetUrl) {
+                        break;
+                    }
+                 }
+                 attempts++;
+               }
+               
+               if (attempts >= 50) {
+                   throw Exception("Timeout waiting for browser to navigate to session URL");
+               }
+               // Short delay to let the SPA initialize DOM elements
+               await Future.delayed(Duration(milliseconds: 1500));
+            }
+            
+            extensionWebSockets[model]!.sink.add(jsonEncode({"action": "prompt", "text": prompt}));
 
             final response = await reqCompleter.future;
             completer.complete(response);
           } catch (e) {
             if (!completer.isCompleted) {
               completer.complete(
-                Response.internalServerError(body: e.toString()),
+                Response.internalServerError(body: jsonEncode({"error": e.toString()}), headers: {'content-type': 'application/json'}),
               );
             }
+            pendingRequests.remove(model);
           } finally {
             Logger.info('Model $model cooling down for 6 seconds...');
             await Future.delayed(Duration(seconds: 6));

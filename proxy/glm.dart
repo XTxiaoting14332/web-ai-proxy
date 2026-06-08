@@ -27,11 +27,33 @@ void initWebSocket() {
     ws = web.WebSocket('$wsUrl?model=glm');
 
     ws?.addEventListener(
+      'open',
+      ((web.Event event) {
+        ws?.send(jsonEncode({
+          "action": "register",
+          "url": web.window.location.href,
+        }).toJS);
+      }).toJS,
+    );
+
+    ws?.addEventListener(
       'message',
       ((web.Event event) {
         void handleMessage() async {
           final msgEvent = event as web.MessageEvent;
-          final prompt = msgEvent.data.toString();
+          final payload = msgEvent.data.toString();
+          String prompt = payload;
+          try {
+            final data = jsonDecode(payload);
+            if (data['action'] == 'navigate') {
+               web.window.location.href = data['url'];
+               return;
+            }
+            if (data['action'] == 'prompt') {
+               prompt = data['text'];
+            }
+          } catch (_) {}
+
 
           final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
           final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
@@ -49,7 +71,15 @@ void initWebSocket() {
           await Future.delayed(Duration(milliseconds: 300));
 
           reqAI(prompt).then((answer) {
-            ws?.send((answer ?? "Error: reqAI returned null").toJS);
+            String ans = answer ?? "Error";
+            try {
+               final data = jsonDecode(ans);
+               data['url'] = web.window.location.href;
+               data['action'] = 'success';
+               ws?.send(jsonEncode(data).toJS);
+            } catch (_) {
+               ws?.send(jsonEncode({"action": "success", "url": web.window.location.href, "response": ans}).toJS);
+            }
           });
         }
         handleMessage();
