@@ -25,6 +25,7 @@ chromium \
   --disable-gpu \
   --disable-software-rasterizer \
   --disable-dev-shm-usage \
+  --allow-running-insecure-content \
   --user-data-dir=/app/userdata \
   --window-position=0,0 \
   --window-size=1280,1024 \

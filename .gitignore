@@ -12,3 +12,4 @@ extension/*.js
 extension/*.map
 extension/*.deps
 check_type.dart
+analysis_results.md
