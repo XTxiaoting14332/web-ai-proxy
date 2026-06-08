@@ -14,13 +14,21 @@ RUN dart compile js proxy/background.dart -O3 -o extension/background.js && \
 
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     tigervnc-standalone-server \
     tigervnc-tools \
     fluxbox \
     fonts-noto-cjk \
-    && rm -rf /var/lib/apt/lists/*
+    locales \
+    && rm -rf /var/lib/apt/lists/* \
+    && sed -i '/zh_CN.UTF-8/s/^# //g' /etc/locale.gen \
+    && locale-gen
+
+ENV LANG=zh_CN.UTF-8
+ENV LANGUAGE=zh_CN:zh
+ENV LC_ALL=zh_CN.UTF-8
 
 WORKDIR /app
 COPY --from=build /app/server /app/server

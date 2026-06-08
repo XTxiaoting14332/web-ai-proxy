@@ -28,18 +28,32 @@ void initWebSocket() {
 
     ws?.addEventListener(
       'message',
-      (web.Event event) {
-        final msgEvent = event as web.MessageEvent;
-        final prompt = msgEvent.data.toString();
+      ((web.Event event) {
+        void handleMessage() async {
+          final msgEvent = event as web.MessageEvent;
+          final prompt = msgEvent.data.toString();
 
-        final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
-        final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
-        runtime.callMethod('sendMessage'.toJS, JSObject()..setProperty('action'.toJS, 'activateTab'.toJS));
+          final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
+          final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
+          
+          final completer = Completer<void>();
+          runtime.callMethod(
+            'sendMessage'.toJS, 
+            JSObject()..setProperty('action'.toJS, 'activateTab'.toJS),
+            ((JSObject _) {
+              completer.complete();
+            }).toJS
+          );
+          
+          await completer.future;
+          await Future.delayed(Duration(milliseconds: 300));
 
-        reqAI(prompt).then((answer) {
-          ws?.send((answer ?? "Error: reqAI returned null").toJS);
-        });
-      }.toJS,
+          reqAI(prompt).then((answer) {
+            ws?.send((answer ?? "Error: reqAI returned null").toJS);
+          });
+        }
+        handleMessage();
+      }).toJS,
     );
 
     ws?.addEventListener(
@@ -119,9 +133,7 @@ Future<String?> reqAI(String prompt) async {
 
       final bool isThinking =
           currentBodyText.contains("正在思考") ||
-          currentBodyText.contains("跳过") ||
-          web.document.querySelector('[aria-label*="停"]') != null ||
-          web.document.querySelector('[aria-label*="Stop"]') != null;
+          currentBodyText.contains("跳过");
 
       if (isThinking) {
         stableCount = 0;
@@ -173,13 +185,22 @@ Future<String?> reqAI(String prompt) async {
 
       if (child.classList.contains('thinking-chain-container') ||
           child.querySelector('.thinking-chain-container') != null ||
-          child.classList.contains('thinking-block')) {
+          child.classList.contains('thinking-block') ||
+          child.querySelector('.thinking-block') != null) {
         continue;
       }
 
       final text = child.innerText.trim();
       if (text.isNotEmpty) {
-        textParts.add(text);
+        if (thinkingText.isNotEmpty && text.contains(thinkingText)) {
+            // If the thinking text is somehow fully embedded inside a single child text block
+            final replaced = text.replaceFirst(thinkingText, '').trim();
+            if (replaced.isNotEmpty) {
+                textParts.add(replaced);
+            }
+        } else {
+            textParts.add(text);
+        }
       }
     }
 

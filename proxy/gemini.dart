@@ -28,18 +28,32 @@ void initWebSocket() {
 
     ws?.addEventListener(
       'message',
-      (web.Event event) {
-        final msgEvent = event as web.MessageEvent;
-        final prompt = msgEvent.data.toString();
+      ((web.Event event) {
+        void handleMessage() async {
+          final msgEvent = event as web.MessageEvent;
+          final prompt = msgEvent.data.toString();
 
-        final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
-        final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
-        runtime.callMethod('sendMessage'.toJS, JSObject()..setProperty('action'.toJS, 'activateTab'.toJS));
+          final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
+          final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
+          
+          final completer = Completer<void>();
+          runtime.callMethod(
+            'sendMessage'.toJS, 
+            JSObject()..setProperty('action'.toJS, 'activateTab'.toJS),
+            ((JSObject _) {
+              completer.complete();
+            }).toJS
+          );
+          
+          await completer.future;
+          await Future.delayed(Duration(milliseconds: 300));
 
-        reqAI(prompt).then((answer) {
-          ws?.send((answer ?? "Error: reqAI returned null").toJS);
-        });
-      }.toJS,
+          reqAI(prompt).then((answer) {
+            ws?.send((answer ?? "Error: reqAI returned null").toJS);
+          });
+        }
+        handleMessage();
+      }).toJS,
     );
 
     ws?.addEventListener(
@@ -114,17 +128,6 @@ Future<String?> reqAI(String prompt) async {
     int maxAttempts = 300;
 
     for (int i = 0; i < maxAttempts; i++) {
-      final stopBtn =
-          web.document.querySelector('[aria-label*="停"]') ??
-          web.document.querySelector('[aria-label*="Stop"]') ??
-          web.document.querySelector('button[aria-label*="停"]') ??
-          web.document.querySelector('gem-icon-button[aria-label*="停"]');
-
-      if (stopBtn != null) {
-        stableCount = 0;
-        await Future.delayed(Duration(milliseconds: 500));
-        continue;
-      }
 
       final responseList = web.document.querySelectorAll('model-response');
       if (responseList.length > 0) {

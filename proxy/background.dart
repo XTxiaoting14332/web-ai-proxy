@@ -80,8 +80,11 @@ void main() {
           final tab = sender.getProperty('tab'.toJS) as JSObject?;
           if (tab != null) {
             final tabId = tab.getProperty('id'.toJS) as JSNumber;
+            final windowId = tab.getProperty('windowId'.toJS) as JSNumber;
             final chromeTabs = chrome.getProperty('tabs'.toJS) as JSObject;
             chromeTabs.callMethod('update'.toJS, tabId, JSObject()..setProperty('active'.toJS, true.toJS));
+            final chromeWindows = chrome.getProperty('windows'.toJS) as JSObject;
+            chromeWindows.callMethod('update'.toJS, windowId, JSObject()..setProperty('focused'.toJS, true.toJS));
           }
           sendResponse.callAsFunction(null, JSObject()..setProperty('success'.toJS, true.toJS));
           return true.toJS;
