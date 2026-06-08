@@ -28,6 +28,10 @@ chromium \
   --allow-running-insecure-content \
   --disable-web-security \
   --disable-features=BlockInsecurePrivateNetworkRequests \
+  --disable-background-timer-throttling \
+  --disable-renderer-backgrounding \
+  --lang=zh-CN \
+  --accept-lang=zh-CN,zh \
   --user-data-dir=/app/userdata \
   --window-position=0,0 \
   --window-size=1280,1024 \
@@ -35,16 +39,15 @@ chromium \
 
 CHROMIUM_PID=$!
 
-
 sleep 3
 
+chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chatgpt.com"
+sleep 5
+chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://gemini.google.com"
+sleep 5
+chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://www.doubao.com"
+sleep 5
+chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chat.z.ai"
 
-chromium \
-  --no-sandbox \
-  --user-data-dir=/app/userdata \
-  "https://chatgpt.com" \
-  "https://gemini.google.com" \
-  "https://www.doubao.com" \
-  "https://chat.z.ai"
-
+# 阻塞脚本，防止 Docker 容器退出
 wait $CHROMIUM_PID
