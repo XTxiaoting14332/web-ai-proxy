@@ -55,10 +55,12 @@ curl -X POST http://127.0.0.1:8080/api/chat \
   -H "Authorization: Bearer <API_KEY>" \
   -d '{
     "model": "gemini",
-    "prompt": "请给我写一个关于大海的简短诗歌。"
+    "prompt": "请给我写一个关于大海的简短诗歌。",
+    "session_id": "user_12345"
   }'
 ```
 *(支持的 model: `gemini`, `gpt`, `doubao`, `glm`, `dola`)*
+*(可选的 session_id: 传入唯一标识符即可实现基于该身份的多轮对话隔离。如果不传，则所有请求共享同一个默认上下文)*
 
 **成功返回示例：**
 ```json
@@ -75,6 +77,20 @@ curl -X POST http://127.0.0.1:8080/api/chat \
   "status": "error",
   "error": "具体的错误描述（如超时、模型未连接等）"
 }
+```
+
+### 5. 清理特定会话历史 (`DELETE /api/chat/session`)
+
+如果你希望重置某个用户的上下文，让模型“忘掉”之前的聊天，可以调用此接口清除本地的会话绑定关系：
+
+```bash
+curl -X DELETE http://127.0.0.1:8080/api/chat/session \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <API_KEY>" \
+  -d '{
+    "model": "gemini",
+    "session_id": "user_12345"
+  }'
 ```
 
 ## 🐳Docker 部署

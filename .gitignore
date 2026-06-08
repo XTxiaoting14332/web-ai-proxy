@@ -13,3 +13,4 @@ extension/*.map
 extension/*.deps
 check_type.dart
 analysis_results.md
+nonebot_plugin_proxy/
