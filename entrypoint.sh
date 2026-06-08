@@ -41,13 +41,15 @@ CHROMIUM_PID=$!
 
 sleep 3
 
-chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chatgpt.com"
-sleep 5
-chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://gemini.google.com"
-sleep 5
-chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://www.doubao.com"
-sleep 5
-chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chat.z.ai"
+chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chatgpt.com" &
+sleep 4
+chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://gemini.google.com" &
+sleep 4
+chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://www.doubao.com" &
+sleep 4
+chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chat.z.ai" &
+sleep 4
+chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://dola.com" &
 
 # 阻塞脚本，防止 Docker 容器退出
 wait $CHROMIUM_PID
