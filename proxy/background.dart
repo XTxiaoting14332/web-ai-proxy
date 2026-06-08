@@ -76,6 +76,17 @@ void main() {
       ((JSObject request, JSObject sender, JSFunction sendResponse) {
         final action = request.getProperty('action'.toJS) as JSString?;
 
+        if (action != null && action.toDart == "activateTab") {
+          final tab = sender.getProperty('tab'.toJS) as JSObject?;
+          if (tab != null) {
+            final tabId = tab.getProperty('id'.toJS) as JSNumber;
+            final chromeTabs = chrome.getProperty('tabs'.toJS) as JSObject;
+            chromeTabs.callMethod('update'.toJS, tabId, JSObject()..setProperty('active'.toJS, true.toJS));
+          }
+          sendResponse.callAsFunction(null, JSObject()..setProperty('success'.toJS, true.toJS));
+          return true.toJS;
+        }
+
         if (action != null && action.toDart == "simulateInputAndClick") {
           final tab = sender.getProperty('tab'.toJS) as JSObject?;
           if (tab == null) return false.toJS;

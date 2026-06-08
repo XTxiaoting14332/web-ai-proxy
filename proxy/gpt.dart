@@ -32,6 +32,10 @@ void initWebSocket() {
         final msgEvent = event as web.MessageEvent;
         final prompt = msgEvent.data.toString();
 
+        final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
+        final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
+        runtime.callMethod('sendMessage'.toJS, JSObject()..setProperty('action'.toJS, 'activateTab'.toJS));
+
         reqAI(prompt).then((answer) {
           ws?.send((answer ?? "Error: reqAI returned null").toJS);
         });
