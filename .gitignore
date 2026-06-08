@@ -1,0 +1,12 @@
+# https://dart.dev/tools/private-files
+# Created by `dart pub`
+.dart_tool/
+build/
+userdata/
+config.json
+.claude/
+backup/
+containerization_plan.md
+test.sh
+extension/
+check_type.dart

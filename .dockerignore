@@ -1,0 +1,7 @@
+.dart_tool/
+.packages
+build/
+.git/
+.github/
+.idea/
+.vscode/
