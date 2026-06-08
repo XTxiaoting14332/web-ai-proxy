@@ -90,7 +90,7 @@ sudo docker run -d \
   -p 5900:5999 \
   -e VNC_PASSWORD="mypassword" \
   -v ai-proxy-userdata:/app/userdata \
-  ghcr.io/XTxiaoting14332/ai-proxy:latest
+  ghcr.io/xtxiaoting14332/ai-proxy:latest
 ```
 
 ### 2. 账号登录
