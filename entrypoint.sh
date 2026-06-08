@@ -26,11 +26,25 @@ chromium \
   --disable-software-rasterizer \
   --disable-dev-shm-usage \
   --allow-running-insecure-content \
+  --disable-web-security \
+  --disable-features=BlockInsecurePrivateNetworkRequests \
   --user-data-dir=/app/userdata \
   --window-position=0,0 \
   --window-size=1280,1024 \
-  --load-extension=/app/extension \
+  --load-extension=/app/extension &
+
+CHROMIUM_PID=$!
+
+
+sleep 3
+
+
+chromium \
+  --no-sandbox \
+  --user-data-dir=/app/userdata \
   "https://chatgpt.com" \
   "https://gemini.google.com" \
   "https://www.doubao.com" \
   "https://chat.z.ai"
+
+wait $CHROMIUM_PID
