@@ -9,6 +9,7 @@ RUN dart compile js proxy/background.dart -O3 -o extension/background.js && \
     dart compile js proxy/gemini.dart -O3 -o extension/gemini.js && \
     dart compile js proxy/glm.dart -O3 -o extension/glm.js && \
     dart compile js proxy/gpt.dart -O3 -o extension/gpt.js && \
+    dart compile js proxy/dola.dart -O3 -o extension/dola.js && \
     dart compile js proxy/popup.dart -O3 -o extension/popup.js
 
 
