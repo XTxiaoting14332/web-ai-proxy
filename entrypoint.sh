@@ -17,6 +17,9 @@ echo "Starting AI Proxy Server..."
 ./server &
 
 echo "Starting Chromium in virtual display..."
+# 清理异常退出或旧容器遗留的 Chromium 锁定文件
+rm -f /app/userdata/SingletonLock /app/userdata/SingletonCookie /app/userdata/SingletonSocket
+
 chromium \
   --no-sandbox \
   --disable-gpu \
