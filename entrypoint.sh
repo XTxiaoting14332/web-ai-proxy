@@ -38,8 +38,7 @@ chromium \
   --load-extension=/app/extension &
 
 CHROMIUM_PID=$!
-
-sleep 3
+sleep 10
 
 chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chatgpt.com" &
 sleep 4
