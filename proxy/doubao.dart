@@ -45,6 +45,20 @@ void initWebSocket() {
         Timer(Duration(seconds: 3), () => initWebSocket());
       }.toJS,
     );
+
+    ws?.addEventListener(
+      'error',
+      (web.Event e) {
+        print("WebSocket error occurred, will retry...");
+      }.toJS,
+    );
+
+    ws?.addEventListener(
+      'open',
+      (web.Event e) {
+        print("WebSocket connected successfully!");
+      }.toJS,
+    );
   }).toJS;
 
   local.callMethod('get'.toJS, ['wsUrl'.toJS].toJS, getCallback);
