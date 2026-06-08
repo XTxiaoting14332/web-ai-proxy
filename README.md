@@ -38,6 +38,7 @@
 | ChatGPT | `https://chatgpt.com` | `gpt` |
 | Gemini | `https://gemini.google.com` | `gemini` |
 | 豆包 (Doubao) | `https://www.doubao.com` | `doubao` |
+| Dola | `https://www.dola.com` | `dola` |
 | GLM (z.ai) | `https://chat.z.ai` | `glm` |
 
 (后续将支持更多)
@@ -57,7 +58,7 @@ curl -X POST http://127.0.0.1:8080/api/chat \
     "prompt": "请给我写一个关于大海的简短诗歌。"
   }'
 ```
-*(支持的 model: `gemini`, `gpt`, `doubao`, `glm`)*
+*(支持的 model: `gemini`, `gpt`, `doubao`, `glm`, `dola`)*
 
 **成功返回示例：**
 ```json
