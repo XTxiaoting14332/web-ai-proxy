@@ -121,7 +121,6 @@ Future<void> _performPhysicalInput(
   await attachDebugger(target);
 
   for (int i = 0; i < text.length; i++) {
-    // 处理换行符：如果是 \n，我们最好发送 Shift+Enter 保证只是换行而不是发送
     if (text[i] == '\n') {
       await sendDebuggerCommand(
         target,
@@ -130,7 +129,7 @@ Future<void> _performPhysicalInput(
           ..setProperty('type'.toJS, 'keyDown'.toJS)
           ..setProperty('key'.toJS, 'Enter'.toJS)
           ..setProperty('code'.toJS, 'Enter'.toJS)
-          ..setProperty('modifiers'.toJS, 8.toJS) // Shift is modifier 8 in CDP
+          ..setProperty('modifiers'.toJS, 8.toJS)
           ..setProperty('windowsVirtualKeyCode'.toJS, 13.toJS)
           ..setProperty('nativeVirtualKeyCode'.toJS, 13.toJS)
           ..setProperty('text'.toJS, '\r'.toJS),

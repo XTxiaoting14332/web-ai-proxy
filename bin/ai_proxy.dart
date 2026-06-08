@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_router/shelf_router.dart';
@@ -28,7 +27,6 @@ Middleware customLogRequests() {
         );
         return response;
       } on HijackException {
-        // Shelf uses HijackException to upgrade to WebSocket. This is normal.
         rethrow;
       } catch (error) {
         final duration = DateTime.now().difference(startTime);
@@ -114,11 +112,35 @@ void main() {
               if (pendingRequests[model] != null &&
                   !pendingRequests[model]!.isCompleted) {
                 Logger.debug('Received reply from model: $model');
+
+                String? thinking;
+                String finalResponse = message.toString();
+
+                try {
+                  final decoded = jsonDecode(finalResponse);
+                  if (decoded is Map<String, dynamic>) {
+                    if (decoded.containsKey("answer")) {
+                      finalResponse = decoded["answer"].toString();
+                    }
+                    if (decoded.containsKey("thinking") &&
+                        decoded["thinking"].toString().isNotEmpty) {
+                      thinking = decoded["thinking"].toString();
+                    }
+                  }
+                } catch (_) {
+                  // If it's not JSON, treat it as a raw string
+                }
+
+                final responseBody = {
+                  "status": "success",
+                  "response": finalResponse,
+                };
+                if (thinking != null) {
+                  responseBody["thinking"] = thinking;
+                }
+
                 final response = Response.ok(
-                  jsonEncode({
-                    "status": "success",
-                    "reply": message.toString(),
-                  }),
+                  jsonEncode(responseBody),
                   headers: {'content-type': 'application/json'},
                 );
                 pendingRequests[model]!.complete(response);
