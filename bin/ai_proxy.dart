@@ -69,7 +69,7 @@ void main() {
 
       if (!configFile.existsSync()) {
         final newApiKey = Uuid().v4().substring(0, 8);
-        config = {'host': '127.0.0.1', 'port': 8080, 'api_key': newApiKey};
+        config = {'host': '0.0.0.0', 'port': 8080, 'api_key': newApiKey};
         configFile.writeAsStringSync(
           JsonEncoder.withIndent('  ').convert(config),
         );
@@ -80,9 +80,15 @@ void main() {
         Logger.info('Loaded existing config.json.');
       }
 
-      final host = config['host'] ?? '127.0.0.1';
-      final port = config['port'] ?? 8080;
-      final apiKey = config['api_key'] ?? '';
+      final host = Platform.environment['HOST'] ?? config['host'] ?? '0.0.0.0';
+      final port = int.tryParse(Platform.environment['PORT'] ?? '') ?? config['port'] ?? 8080;
+      final apiKey = Platform.environment['API_KEY'] ?? config['api_key'] ?? '';
+
+      if (Platform.environment['API_KEY'] != null) {
+        Logger.success('Using API Key from environment variable API_KEY');
+      } else {
+        Logger.info('Current API Key is: $apiKey');
+      }
 
       // 设置SIGINT信号处理器
       ProcessSignal.sigint.watch().listen((signal) {

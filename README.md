@@ -89,9 +89,14 @@ sudo docker run -d \
   -p 8080:8080 \
   -p 5900:5999 \
   -e VNC_PASSWORD="mypassword" \
+  -e API_KEY="my_custom_api_key" \
   -v ai-proxy-userdata:/app/userdata \
-  ghcr.io/xtxiaoting14332/ai-proxy:latest
+  ghcr.io/xtxiaoting14332/web-ai-proxy:latest
 ```
+
+> **如何查看或修改 API Key？**
+> - **修改**：强烈建议像上面一样通过 `-e API_KEY="你的密码"` 直接在启动容器时指定，这样最快捷且永久生效。
+> - **查看**：如果你没设置 `API_KEY` 环境变量，程序会自动生成一个随机 Key。你可以通过 `sudo docker logs web-ai-proxy` 命令，在最前面的日志中找到类似于 `Current API Key is: xxxxxxxx` 的提示。
 
 ### 2. 账号登录
 网页端AI需登录才能使用更多功能，操作步骤如下：
