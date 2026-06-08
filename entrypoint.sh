@@ -30,6 +30,7 @@ chromium \
   --disable-features=BlockInsecurePrivateNetworkRequests \
   --disable-background-timer-throttling \
   --disable-renderer-backgrounding \
+  --disable-translate \
   --lang=zh-CN \
   --accept-lang=zh-CN,zh \
   --user-data-dir=/app/userdata \
@@ -40,15 +41,15 @@ chromium \
 CHROMIUM_PID=$!
 sleep 10
 
-chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chatgpt.com" &
+chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chatgpt.com" &
 sleep 4
-chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://gemini.google.com" &
+chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://gemini.google.com" &
 sleep 4
-chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://www.doubao.com" &
+chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://www.doubao.com" &
 sleep 4
-chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chat.z.ai" &
+chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chat.z.ai" &
 sleep 4
-chromium --no-sandbox --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://dola.com" &
+chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://dola.com" &
 
 # 阻塞脚本，防止 Docker 容器退出
 wait $CHROMIUM_PID
