@@ -104,3 +104,18 @@ sudo docker run -d \
 1. 使用 VNC 客户端（如 TigerVNC、Remmina）连接 `127.0.0.1:5900`，密码是你设置的 `VNC_PASSWORD`（如果不设置环境变量，默认为 `123456`）。
 2. 看到浏览器界面后，手动完成各个网站的登录和验证。
 3. 登录完成后即可断开 VNC 连接。由于使用了 `ai-proxy-userdata` 数据卷挂载，登录状态会安全且永久地保存在 Docker 中。之后即使在不同目录重启或更新容器，也绝对不需要重新登录。
+
+### 3. 清理用户数据（重置浏览器状态）
+
+如果在使用过程中遇到浏览器语言错乱、页面一直报错，或者你想要换个账号重新登录，可以通过清空持久化保存的数据卷来重置浏览器的全部状态。操作步骤如下：
+
+```bash
+# 1. 停止并删除当前容器
+sudo docker stop web-ai-proxy
+sudo docker rm web-ai-proxy
+
+# 2. 删除挂载的数据卷（⚠️警告：这会清除所有网站的登录状态！）
+sudo docker volume rm ai-proxy-userdata
+
+# 3. 重新执行第一步的 `docker run` 命令启动全新容器
+```
