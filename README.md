@@ -1,80 +1,99 @@
-# AI Web Proxy
+# Web AI Proxy
 
-> ⚠️ **声明：本项目及相关代码仅供学习、研究与技术探讨使用。严禁用于任何商业用途或违反各平台服务条款（ToS）的行为。因滥用本项目引发的一切纠纷及后果由使用者自行承担。**
+> ⚠️ 声明：本项目仅供学习与技术探讨，严禁用于商业用途。因滥用本项目引发的后果由使用者自行承担。
 
-AI Web Proxy 是一个基于“浏览器真实 UI 驱动”的轻量级 AI 接口代理系统。它通过 Chrome 插件的底层调试 API (`chrome.debugger`) 物理模拟人类的键盘输入与点击，从而完美绕过严格的反爬虫检测与风控限制，将网页端的 AI 聊天界面（如 ChatGPT、Gemini、豆包等）封装为标准的 HTTP API 供第三方服务调用。
+这是一个基于 Chrome 插件的 AI 接口代理工具。通过浏览器插件直接操作网页 DOM 并模拟用户输入，将AI的网页端聊天界面封装成 HTTP API 供外部调用。
 
-## ✨ 核心特性
+## 特性
 
-- **🤖 原生防风控穿透**：不依赖任何非官方 API 接口，完全基于前端 DOM 的纯物理模拟，从根本上免疫 Cloudflare 等反爬虫屏障。
-- **🔌 多模型路由支持**：内置了针对 ChatGPT、Gemini、豆包 (Doubao) 和 Chat Z.AI 的专属 DOM 适配器，通过单连接动态路由分发请求。
-- **🚦 智能排队与冷却**：后端内置了单模型级别的并发请求队列系统，确保浏览器前端在一次只处理一个任务，并附带 6 秒的安全冷却期，避免账号被限流。
-- **🔒 API 安全鉴权**：首次启动自动生成 8 位高强度 API Key，针对所有的 HTTP API 请求强制实施 `Bearer Token` 拦截鉴权。
-- **⚙️ 可视化插件配置**：抛弃繁琐的硬编码，插件端自带独立的弹窗设置界面，可一键实时修改后端的 WebSocket 连接地址。
-- **🌈 优雅的架构与日志**：后端基于 Dart `shelf` 生态重构，拥有严谨的异常兜底 (`runZonedGuarded`)、优雅的 `Ctrl+C` 停机处理，以及带彩虹特效的彩色终端状态回显。
+- 基于真实的浏览器环境，直接控制网页元素，不需要逆向内部接口。
+- 简单的 Bearer Token 接口鉴权。
+- 支持通过 Docker + Xvnc 在无界面服务器上运行。
 
-## 📂 架构概览
+## 架构
 
-系统由两个松耦合的模块组成：
-1. **服务端 (Backend)**: 位于 `bin/ai_proxy.dart`。负责接收外部 HTTP POST 请求，将文本指令放入队列，并通过 WebSocket 推送给对应的浏览器插件；当插件抓取到回答后，再将结果原路返回。
-2. **浏览器插件 (Extension)**: 位于 `extension/` 目录。这是基于 Manifest V3 的 Chrome 扩展，负责注入宿主网页，执行光标聚焦、按键触发与 DOM 文本逆向提取。
+1. **后端 (Dart)**: 接收外部 HTTP 请求，将任务通过 WebSocket 发送给浏览器插件，并等待结果返回。
+2. **插件 (Chrome Extension)**: 注入到目标网页，负责实际的输入、点击和内容提取。
 
-## 🚀 快速开始
+## 🚀快速开始
 
-### 1. 启动后端服务
+### 1. 运行后端服务
 
-你需要安装 Dart SDK，然后在项目根目录下执行：
+前往[Release](https://github.com/XTxiaoting14332/web-ai-proxy/releases)页面下载对应架构的二进制文件以及`web-ai-proxy-extension.zip`
 
-```bash
-# 获取依赖
-dart pub get
+首次运行二进制会在目录下生成 `config.json`，里面包含随机生成的 API Key。终端会打印监听地址（默认 `http://127.0.0.1:8080`）。
 
-# 启动代理服务端
-dart run bin/ai_proxy.dart
-```
+### 2. 安装并配置插件
 
-首次运行后，当前目录会自动生成 `config.json` 文件并终端会打印出类似下方的日志：
-```text
-2026-06-08 02:00:00 [SUCCESS] | Web Proxy | Generated default config.json. API Key: abc12345
-2026-06-08 02:00:00 [INFO] | Web Proxy | Serving at http://127.0.0.1:8080 (Ctrl+C to quit)
-```
+1. Chrome/Chromium 浏览器打开 `chrome://extensions/`，开启“开发者模式”。
+2. 点击“加载已解压的扩展程序”，选择项目中的 `extension` 目录。
+3. 点击插件图标打开设置，确认 Backend Server Address 为 `ws://127.0.0.1:8080/ws`，点击保存。
 
-### 2. 加载浏览器插件
+### 3. 打开模型网页
 
-1. 打开 Chrome 浏览器，访问 `chrome://extensions/`。
-2. 打开右上角的 **开发者模式**。
-3. 点击 **加载已解压的扩展程序 (Load unpacked)**，选择本项目中的 `extension` 文件夹。
-4. 点击工具栏上的扩展图标，打开设置面板，确保 **Backend Server Address** 填入的是你启动的后端地址（如 `ws://127.0.0.1:8080/ws`），并点击保存。
+在浏览器打开你需要的 AI 网站。下表是目标网站和 API 中 `model` 字段的对应关系：
 
-### 3. 打开目标 AI 网页
+| 模型平台 | 目标网页 URL | API `model` 字段 |
+| :--- | :--- | :--- |
+| ChatGPT | `https://chatgpt.com` | `gpt` |
+| Gemini | `https://gemini.google.com` | `gemini` |
+| 豆包 (Doubao) | `https://www.doubao.com` | `doubao` |
+| GLM (z.ai) | `https://chat.z.ai` | `glm` |
 
-在浏览器中分别打开你需要使用的 AI 模型页面（请确保账号已登录）：
-- ChatGPT: `https://chatgpt.com`
-- Gemini: `https://gemini.google.com`
-- 豆包: `https://www.doubao.com`
-- Z.AI: `https://chat.z.ai`
+(后续将支持更多)
 
-保持这些网页处于打开（或后台挂起）状态，插件会自动尝试与后端建立 WebSocket 连接并在控制台打印绿色的连接成功日志。
+保持网页打开。插件会自动连接本地后端。
 
-### 4. 发起调用
+### 4. API 调用
 
-你可以像调用标准 API 一样向本地服务器发送请求。请在 Header 中带上你在 `config.json` 中配置的 `api_key`：
+在 Header 中带上 `config.json` 里的 `api_key` 发起请求：
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/chat \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <你的API_KEY>" \
+  -H "Authorization: Bearer <API_KEY>" \
   -d '{
     "model": "gemini",
     "prompt": "请给我写一个关于大海的简短诗歌。"
   }'
 ```
-*(支持的 `model` 字段包括：`gemini`, `gpt`, `doubao`, `glm`)*
+*(支持的 model: `gemini`, `gpt`, `doubao`, `glm`)*
 
-## 🛠️ 无头服务器部署 (进阶)
+**成功返回示例：**
+```json
+{
+  "status": "success",
+  "thinking": "这是大模型的思考过程（仅针对 z.ai 等深度思考模型）...",
+  "response": "这是模型返回的具体文本内容..."
+}
+```
 
-如果你需要在无显示器的 Linux 服务器上 24 小时运行此项目，可以参考 [containerization_plan.md](./containerization_plan.md) 文档。
-基本思路是利用 `Xvfb` (X Virtual Framebuffer) 在内存中虚拟一块显示器屏幕，配合 `--no-sandbox` 启动 Chromium，从而在纯命令行环境中完美挂载带 UI 的插件进行渲染。
+**错误返回示例：**
+```json
+{
+  "status": "error",
+  "error": "具体的错误描述（如超时、模型未连接等）"
+}
+```
 
----
-*Created with ❤️ by NightWind & AI Agents*
+## 🐳Docker 部署
+
+### 1. 拉取并启动
+
+```bash
+sudo docker run -d \
+  --name web-ai-proxy \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -p 5900:5999 \
+  -e VNC_PASSWORD="mypassword" \
+  -v ai-proxy-userdata:/app/userdata \
+  ghcr.io/XTxiaoting14332/ai-proxy:latest
+```
+
+### 2. 账号登录
+
+网页端风控需要过验证码，因此首次部署必须手动登录：
+1. 使用 VNC 客户端（如 TigerVNC、Remmina）连接 `127.0.0.1:5900`，密码是你设置的 `VNC_PASSWORD`（如果不设置环境变量，默认为 `123456`）。
+2. 看到浏览器界面后，手动完成各个网站的登录和验证。
+3. 登录完成后即可断开 VNC 连接。由于使用了 `ai-proxy-userdata` 数据卷挂载，登录状态会安全且永久地保存在 Docker 中。之后即使在不同目录重启或更新容器，也绝对不需要重新登录。
