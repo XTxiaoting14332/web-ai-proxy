@@ -27,13 +27,13 @@ jobs:
         run: |
           mkdir dist
           dart pub get
-          dart compile exe bin/ai_proxy.dart -o dist/ai_proxy-windows.exe
+          dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-windows.exe
 
       - name: Upload Dist Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ai_proxy-windows
-          path: dist/ai_proxy-windows.exe
+          name: web-ai-proxy-windows
+          path: dist/web-ai-proxy-windows.exe
 
   linux_amd64:
     runs-on: ubuntu-latest
@@ -49,13 +49,13 @@ jobs:
           run: |
             mkdir dist
             dart pub get
-            dart compile exe bin/ai_proxy.dart -o dist/ai_proxy-linux-amd64
+            dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-linux-amd64
   
         - name: Upload Dist Artifact
           uses: actions/upload-artifact@v4
           with:
-            name: ai_proxy-linux-amd64
-            path: dist/ai_proxy-linux-amd64
+            name: web-ai-proxy-linux-amd64
+            path: dist/web-ai-proxy-linux-amd64
 
 
   linux_arm64:
@@ -81,13 +81,13 @@ jobs:
               export PATH=$PATH:$GITHUB_WORKSPACE/dart-sdk/bin
               mkdir dist
               dart pub get
-              dart compile exe bin/ai_proxy.dart -o dist/ai_proxy-linux-arm64
+              dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-linux-arm64
 
         - name: Upload Dist Artifact
           uses: actions/upload-artifact@v4
           with:
-            name: ai_proxy-linux-arm64
-            path: dist/ai_proxy-linux-arm64
+            name: web-ai-proxy-linux-arm64
+            path: dist/web-ai-proxy-linux-arm64
 
 
   linux_arm:
@@ -113,13 +113,13 @@ jobs:
               export PATH=$PATH:$GITHUB_WORKSPACE/dart-sdk/bin
               mkdir dist
               dart pub get
-              dart compile exe bin/ai_proxy.dart -o dist/ai_proxy-linux-arm
+              dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-linux-arm
 
         - name: Upload Dist Artifact
           uses: actions/upload-artifact@v4
           with:
-            name: ai_proxy-linux-arm
-            path: dist/ai_proxy-linux-arm
+            name: web-ai-proxy-linux-arm
+            path: dist/web-ai-proxy-linux-arm
 
 
   macos_M1:
@@ -137,13 +137,13 @@ jobs:
           run: |
             mkdir dist
             dart pub get
-            dart compile exe bin/ai_proxy.dart -o dist/ai_proxy-macos-M1
+            dart compile exe bin/ai_proxy.dart -o dist/web-ai-proxy-macos-M1
 
         - name: Upload Dist Artifact
           uses: actions/upload-artifact@v4
           with:
-            name: ai_proxy-macos-M1
-            path: dist/ai_proxy-macos-M1
+            name: web-ai-proxy-macos-M1
+            path: dist/web-ai-proxy-macos-M1
 
 
   publish_releases:
@@ -169,37 +169,37 @@ jobs:
       - name: Download Artifact (Windows)
         uses: actions/download-artifact@v4
         with:
-          name: "ai_proxy-windows"
+          name: "web-ai-proxy-windows"
           path: dist/
 
       - name: Download Artifact (Linux amd64)
         uses: actions/download-artifact@v4
         with:
-          name: "ai_proxy-linux-amd64"
+          name: "web-ai-proxy-linux-amd64"
           path: dist/
 
       - name: Download Artifact (MacOS M1)
         uses: actions/download-artifact@v4
         with:
-          name: "ai_proxy-macos-M1"
+          name: "web-ai-proxy-macos-M1"
           path: dist/
 
       - name: Download Artifact (Linux arm64)
         uses: actions/download-artifact@v4
         with:
-          name: "ai_proxy-linux-arm64"
+          name: "web-ai-proxy-linux-arm64"
           path: dist/
 
       - name: Download Artifact (Linux arm)
         uses: actions/download-artifact@v4
         with:
-          name: "ai_proxy-linux-arm"
+          name: "web-ai-proxy-linux-arm"
           path: dist/
 
       - name: Package Extension
         run: |
           cd extension
-          zip -r ../dist/ai_proxy-extension.zip *
+          zip -r ../dist/web-ai-proxy-extension.zip *
           cd ..
 
       - name: Release
@@ -212,9 +212,9 @@ jobs:
           generate_release_notes: true
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            dist/ai_proxy-windows.exe
-            dist/ai_proxy-linux-amd64
-            dist/ai_proxy-linux-arm64
-            dist/ai_proxy-linux-arm
-            dist/ai_proxy-macos-M1
-            dist/ai_proxy-extension.zip
+            dist/web-ai-proxy-windows.exe
+            dist/web-ai-proxy-linux-amd64
+            dist/web-ai-proxy-linux-arm64
+            dist/web-ai-proxy-linux-arm
+            dist/web-ai-proxy-macos-M1
+            dist/web-ai-proxy-extension.zip
