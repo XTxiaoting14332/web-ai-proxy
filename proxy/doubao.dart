@@ -30,10 +30,12 @@ void initWebSocket() {
     ws?.addEventListener(
       'open',
       ((web.Event event) {
-        ws?.send(jsonEncode({
-          "action": "register",
-          "url": web.window.location.href,
-        }).toJS);
+        ws?.send(
+          jsonEncode({
+            "action": "register",
+            "url": web.window.location.href,
+          }).toJS,
+        );
       }).toJS,
     );
 
@@ -43,46 +45,59 @@ void initWebSocket() {
         void handleMessage() async {
           final msgEvent = event as web.MessageEvent;
           final payload = msgEvent.data.toString();
+          print("[DOUBAO-DEBUG] Received WS message: $payload");
           String prompt = payload;
           try {
             final data = jsonDecode(payload);
             if (data['action'] == 'navigate') {
-               web.window.location.href = data['url'];
-               return;
+              print("[DOUBAO-DEBUG] Navigate action, going to: ${data['url']}");
+              web.window.location.href = data['url'];
+              return;
             }
             if (data['action'] == 'prompt') {
-               prompt = data['text'];
+              prompt = data['text'];
+              print("[DOUBAO-DEBUG] Prompt: $prompt");
             }
           } catch (_) {}
 
-
           final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
           final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
-          
+
           final completer = Completer<void>();
           runtime.callMethod(
-            'sendMessage'.toJS, 
+            'sendMessage'.toJS,
             JSObject()..setProperty('action'.toJS, 'activateTab'.toJS),
             ((JSObject _) {
               completer.complete();
-            }).toJS
+            }).toJS,
           );
-          
+
           await completer.future;
           await Future.delayed(Duration(milliseconds: 300));
 
           reqAI(prompt).then((answer) {
             String ans = answer ?? "Error";
+            print(
+              "[DOUBAO-DEBUG] reqAI returned: ${ans.length > 100 ? ans.substring(0, 100) + '...' : ans}",
+            );
             try {
-               final data = jsonDecode(ans);
-               data['url'] = web.window.location.href;
-               data['action'] = 'success';
-               ws?.send(jsonEncode(data).toJS);
+              final data = jsonDecode(ans);
+              data['url'] = web.window.location.href;
+              data['action'] = 'success';
+              ws?.send(jsonEncode(data).toJS);
             } catch (_) {
-               ws?.send(jsonEncode({"action": "success", "url": web.window.location.href, "response": ans}).toJS);
+              ws?.send(
+                jsonEncode({
+                  "action": "success",
+                  "url": web.window.location.href,
+                  "response": ans,
+                }).toJS,
+              );
             }
+            print("[DOUBAO-DEBUG] WS send completed");
           });
         }
+
         handleMessage();
       }).toJS,
     );
@@ -120,13 +135,32 @@ Future<void> _humanDelay(int minMs, int maxMs) async {
 
 Future<String?> reqAI(String prompt) async {
   try {
-    final inputElement = web.document.querySelector('.semi-input-textarea');
-    if (inputElement == null) return "Error: Input element not found.";
+    print("[DOUBAO-DEBUG] reqAI START");
+
+    // Poll for the input element
+    web.Element? inputElement;
+    for (int attempt = 0; attempt < 20; attempt++) {
+      inputElement = web.document.querySelector('.semi-input-textarea');
+      if (inputElement != null) {
+        print("[DOUBAO-DEBUG] Found input element on attempt $attempt");
+        break;
+      }
+      await Future.delayed(Duration(milliseconds: 500));
+    }
+    if (inputElement == null) {
+      return "Error: Input element not found.";
+    }
 
     final inputArea = inputElement as web.HTMLElement;
     await _humanDelay(300, 800);
     inputArea.focus();
 
+    // Capture body text BEFORE sending, so we can detect new content
+    final String bodyTextBefore = web.document.body?.innerText ?? "";
+    print("[DOUBAO-DEBUG] Body text length before: ${bodyTextBefore.length}");
+
+    // Use background script to type and send via Chrome Debugger
+    print("[DOUBAO-DEBUG] Sending simulateInputAndClick...");
     final completer = Completer<bool>();
     final requestPayload = JSObject()
       ..setProperty('action'.toJS, 'simulateInputAndClick'.toJS)
@@ -142,50 +176,106 @@ Future<String?> reqAI(String prompt) async {
     final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
 
     final callback = ((JSObject response) {
+      print("[DOUBAO-DEBUG] simulateInputAndClick done");
       completer.complete(true);
     }).toJS;
 
     runtime.callMethod('sendMessage'.toJS, requestPayload, callback);
-
     await completer.future;
-    await Future.delayed(Duration(seconds: 1));
 
-    String lastText = "";
+    print("[DOUBAO-DEBUG] Waiting for response generation...");
+    await Future.delayed(Duration(seconds: 2));
+
+    // === Phase 1: Monitor page body text for stability (like GLM approach) ===
+    String lastBodyText = "";
     int stableCount = 0;
-    int maxAttempts = 300;
+    int maxAttempts = 120; // 60 seconds
 
     for (int i = 0; i < maxAttempts; i++) {
+      final String currentBodyText = web.document.body?.innerText ?? "";
 
-      final responseList = web.document.querySelectorAll('.flow-markdown-body');
-      if (responseList.length > 0) {
-        final currentResponse =
-            responseList.item(responseList.length - 1) as web.HTMLElement;
-        final currentText = currentResponse.innerText.trim();
+      // Check if Doubao is still "thinking"
+      final bool isThinking =
+          currentBodyText.contains("正在思考") ||
+          currentBodyText.contains("正在搜索") ||
+          currentBodyText.contains("跳过");
 
-        if (currentText.isNotEmpty && currentText == lastText) {
-          stableCount++;
-          if (stableCount >= 10) {
-            break;
-          }
-        } else {
-          stableCount = 0;
-          lastText = currentText;
+      if (isThinking) {
+        stableCount = 0;
+        lastBodyText = currentBodyText;
+        if (i % 10 == 0) {
+          print("[DOUBAO-DEBUG] Poll #$i: Doubao is thinking...");
         }
+        await Future.delayed(Duration(milliseconds: 500));
+        continue;
+      }
+
+      if (currentBodyText.isNotEmpty && currentBodyText == lastBodyText) {
+        stableCount++;
+        if (i % 10 == 0 || stableCount >= 3) {
+          print(
+            "[DOUBAO-DEBUG] Poll #$i: stable=$stableCount/5, bodyLen=${currentBodyText.length}",
+          );
+        }
+        if (stableCount >= 5) {
+          // 2.5 seconds of stability
+          print("[DOUBAO-DEBUG] Body text stable. Generation complete.");
+          break;
+        }
+      } else {
+        stableCount = 0;
+        lastBodyText = currentBodyText;
       }
       await Future.delayed(Duration(milliseconds: 500));
     }
 
+    // === Phase 2: Extract the actual response text ===
+    print("[DOUBAO-DEBUG] Extracting response...");
+
+    // Try .flow-markdown-body first
     final responseList = web.document.querySelectorAll('.flow-markdown-body');
+    print("[DOUBAO-DEBUG] .flow-markdown-body count: ${responseList.length}");
+
     if (responseList.length > 0) {
-      final lastResponse = responseList.item(responseList.length - 1) as web.HTMLElement;
+      final lastResponse =
+          responseList.item(responseList.length - 1) as web.HTMLElement;
       final cleanText = lastResponse.innerText.trim();
       if (cleanText.isNotEmpty) {
+        print(
+          "[DOUBAO-DEBUG] Extracted via .flow-markdown-body: ${cleanText.length} chars",
+        );
         return cleanText;
       }
     }
 
-    return lastText;
+    // Fallback: try to extract from receive-message-action-bar's preceding sibling
+    final msgContainers = web.document.querySelectorAll(
+      '[data-container-type="block-v2"]',
+    );
+    print("[DOUBAO-DEBUG] block-v2 containers: ${msgContainers.length}");
+    if (msgContainers.length > 0) {
+      final lastContainer =
+          msgContainers.item(msgContainers.length - 1) as web.HTMLElement;
+      final text = lastContainer.innerText.trim();
+      if (text.isNotEmpty) {
+        print("[DOUBAO-DEBUG] Extracted via block-v2: ${text.length} chars");
+        return text;
+      }
+    }
+
+    // Last resort: diff body text
+    final bodyTextAfter = web.document.body?.innerText ?? "";
+    if (bodyTextAfter.length > bodyTextBefore.length) {
+      // Try to find the new text that appeared
+      print(
+        "[DOUBAO-DEBUG] Body text grew by ${bodyTextAfter.length - bodyTextBefore.length} chars, returning diff",
+      );
+      return "Error: Could not extract response cleanly. Body text length: ${bodyTextAfter.length}";
+    }
+
+    return "Error: No response detected.";
   } catch (e, stackTrace) {
+    print("[DOUBAO-DEBUG] EXCEPTION: $e");
     return "Error caught in script: $e";
   }
 }

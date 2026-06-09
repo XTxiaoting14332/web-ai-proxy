@@ -12,6 +12,7 @@ import 'package:ai_proxy/logger.dart';
 Map<String, Completer<Response>> pendingRequests = {};
 Map<String, WebSocketChannel> extensionWebSockets = {};
 Map<String, Future<void>> modelQueues = {};
+Map<String, bool> isNavigating = {};
 
 Map<String, String> sessionUrls = {};
 Map<String, String> currentExtensionUrls = {};
@@ -198,6 +199,13 @@ void main() {
               Logger.warn('WebSocket connection closed for model: $model');
               extensionWebSockets.remove(model);
               currentExtensionUrls.remove(model);
+              if (pendingRequests[model] != null && !pendingRequests[model]!.isCompleted && !(isNavigating[model] ?? false)) {
+                 pendingRequests[model]!.complete(Response.internalServerError(
+                   body: jsonEncode({"error": "WebSocket connection closed unexpectedly during generation (Page reloaded?)"}),
+                   headers: {'content-type': 'application/json'}
+                 ));
+                 pendingRequests.remove(model);
+              }
             },
             onError: (error) {
               Logger.error('WebSocket error for model $model: $error');
@@ -282,19 +290,28 @@ void main() {
 
             if (currentUrl != targetUrl) {
                Logger.info('Navigating to target session URL: $targetUrl');
+               isNavigating[model] = true;
                extensionWebSockets[model]!.sink.add(jsonEncode({"action": "navigate", "url": targetUrl}));
                
-               // Wait for WS to reconnect on the new URL
+               // Wait for WS to drop
                int attempts = 0;
+               while (attempts < 10) {
+                 await Future.delayed(Duration(milliseconds: 200));
+                 if (extensionWebSockets[model] == null) break;
+                 attempts++;
+               }
+
+               // Wait for WS to reconnect
+               attempts = 0;
                while (attempts < 50) { // 10 seconds timeout
                  await Future.delayed(Duration(milliseconds: 200));
                  if (extensionWebSockets[model] != null && currentExtensionUrls[model] != null) {
-                    if (currentExtensionUrls[model] == targetUrl) {
-                        break;
-                    }
+                    break;
                  }
                  attempts++;
                }
+               
+               isNavigating[model] = false;
                
                if (attempts >= 50) {
                    throw Exception("Timeout waiting for browser to navigate to session URL");
