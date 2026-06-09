@@ -39,7 +39,7 @@
       "run_at": "document_end"
     },
     {
-      "matches": ["https://dola.com/*"],
+      "matches": ["https://www.dola.com/*"],
       "js": ["dola.js"],
       "run_at": "document_end"
     }
