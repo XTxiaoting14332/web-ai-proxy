@@ -37,7 +37,6 @@
 | :--- | :--- | :--- |
 | ChatGPT | `https://chatgpt.com` | `gpt` |
 | Gemini | `https://gemini.google.com` | `gemini` |
-| 豆包 (Doubao) | `https://www.doubao.com` | `doubao` |
 | Dola | `https://www.dola.com` | `dola` |
 | GLM (z.ai) | `https://chat.z.ai` | `glm` |
 
@@ -59,7 +58,7 @@ curl -X POST http://127.0.0.1:8080/api/chat \
     "session_id": "user_12345"
   }'
 ```
-*(支持的 model: `gemini`, `gpt`, `doubao`, `glm`, `dola`)*
+*(支持的 model: `gemini`, `gpt`, `glm`, `dola`)*
 *(可选的 session_id: 传入唯一标识符即可实现基于该身份的多轮对话隔离。如果不传，则所有请求共享同一个默认上下文)*
 
 **成功返回示例：**
