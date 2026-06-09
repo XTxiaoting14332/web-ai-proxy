@@ -29,10 +29,12 @@ void initWebSocket() {
     ws?.addEventListener(
       'open',
       ((web.Event event) {
-        ws?.send(jsonEncode({
-          "action": "register",
-          "url": web.window.location.href,
-        }).toJS);
+        ws?.send(
+          jsonEncode({
+            "action": "register",
+            "url": web.window.location.href,
+          }).toJS,
+        );
       }).toJS,
     );
 
@@ -46,42 +48,48 @@ void initWebSocket() {
           try {
             final data = jsonDecode(payload);
             if (data['action'] == 'navigate') {
-               web.window.location.href = data['url'];
-               return;
+              web.window.location.href = data['url'];
+              return;
             }
             if (data['action'] == 'prompt') {
-               prompt = data['text'];
+              prompt = data['text'];
             }
           } catch (_) {}
 
-
           final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
           final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
-          
+
           final completer = Completer<void>();
           runtime.callMethod(
-            'sendMessage'.toJS, 
+            'sendMessage'.toJS,
             JSObject()..setProperty('action'.toJS, 'activateTab'.toJS),
             ((JSObject _) {
               completer.complete();
-            }).toJS
+            }).toJS,
           );
-          
+
           await completer.future;
           await Future.delayed(Duration(milliseconds: 300));
 
           reqAI(prompt).then((answer) {
             String ans = answer ?? "Error";
             try {
-               final data = jsonDecode(ans);
-               data['url'] = web.window.location.href;
-               data['action'] = 'success';
-               ws?.send(jsonEncode(data).toJS);
+              final data = jsonDecode(ans);
+              data['url'] = web.window.location.href;
+              data['action'] = 'success';
+              ws?.send(jsonEncode(data).toJS);
             } catch (_) {
-               ws?.send(jsonEncode({"action": "success", "url": web.window.location.href, "response": ans}).toJS);
+              ws?.send(
+                jsonEncode({
+                  "action": "success",
+                  "url": web.window.location.href,
+                  "response": ans,
+                }).toJS,
+              );
             }
           });
         }
+
         handleMessage();
       }).toJS,
     );
@@ -148,6 +156,10 @@ Future<String?> reqAI(String prompt) async {
     if (sendButtonElement == null)
       return jsonEncode({"error": "Send button element not found"});
 
+    // Record initial assistant count before sending
+    final initialAssistants = web.document.querySelectorAll('.chat-assistant');
+    final initialCount = initialAssistants.length;
+
     final sendButton = sendButtonElement as web.HTMLElement;
     sendButton.click();
     print("Send button clicked. Waiting for response...");
@@ -162,8 +174,7 @@ Future<String?> reqAI(String prompt) async {
       final String currentBodyText = web.document.body?.innerText ?? "";
 
       final bool isThinking =
-          currentBodyText.contains("正在思考") ||
-          currentBodyText.contains("跳过");
+          currentBodyText.contains("正在思考") || currentBodyText.contains("跳过");
 
       if (isThinking) {
         stableCount = 0;
@@ -172,12 +183,29 @@ Future<String?> reqAI(String prompt) async {
         continue;
       }
 
+      bool hasNewProse = false;
+      final assistantMessages = web.document.querySelectorAll(
+        '.chat-assistant',
+      );
+      if (assistantMessages.length > initialCount) {
+        final lastAssistant =
+            assistantMessages.item(assistantMessages.length - 1)
+                as web.HTMLElement;
+        if (lastAssistant.querySelector('.markdown-prose') != null) {
+          hasNewProse = true;
+        }
+      }
+
       if (currentBodyText.isNotEmpty && currentBodyText == lastBodyText) {
-        stableCount++;
-        print("Text status stable count: $stableCount/4");
-        if (stableCount >= 4) {
-          print("Generation completed.");
-          break;
+        if (hasNewProse) {
+          stableCount++;
+          print("Text status stable count: $stableCount/4");
+          if (stableCount >= 4) {
+            print("Generation completed.");
+            break;
+          }
+        } else {
+          stableCount = 0;
         }
       } else {
         stableCount = 0;
@@ -223,13 +251,13 @@ Future<String?> reqAI(String prompt) async {
       final text = child.innerText.trim();
       if (text.isNotEmpty) {
         if (thinkingText.isNotEmpty && text.contains(thinkingText)) {
-            // If the thinking text is somehow fully embedded inside a single child text block
-            final replaced = text.replaceFirst(thinkingText, '').trim();
-            if (replaced.isNotEmpty) {
-                textParts.add(replaced);
-            }
+          // If the thinking text is somehow fully embedded inside a single child text block
+          final replaced = text.replaceFirst(thinkingText, '').trim();
+          if (replaced.isNotEmpty) {
+            textParts.add(replaced);
+          }
         } else {
-            textParts.add(text);
+          textParts.add(text);
         }
       }
     }
