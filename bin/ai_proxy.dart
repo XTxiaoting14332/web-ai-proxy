@@ -17,6 +17,7 @@ Map<String, bool> isNavigating = {};
 Map<String, String> sessionUrls = {};
 Map<String, String> currentExtensionUrls = {};
 Map<String, String> pendingSessionKeys = {};
+Map<String, DateTime> lastActivityTimes = {};
 
 void loadSessions() {
   final sessionFile = File('userdata/sessions.json');
@@ -278,7 +279,8 @@ void main() {
         final sessionId = data['session_id'] ?? 'default';
         final sessionKey = "${model}_$sessionId";
 
-        if (extensionWebSockets[model] == null) {
+        if (extensionWebSockets[model] == null &&
+            extensionWebSockets['_manager'] == null) {
           Logger.error('Chrome plugin not connected for model: $model');
           return Response(
             503,
@@ -294,25 +296,8 @@ void main() {
 
         Future<void> process() async {
           try {
-            if (extensionWebSockets[model] == null) {
-              completer.complete(
-                Response(
-                  503,
-                  body: jsonEncode({"error": "Chrome 插件未连接 ($model)"}),
-                  headers: {'content-type': 'application/json'},
-                ),
-              );
-              return;
-            }
-
-            Logger.info('Forwarding prompt to $model (session: $sessionId)...');
-            final reqCompleter = Completer<Response>();
-            pendingRequests[model] = reqCompleter;
-            pendingSessionKeys[model] = sessionKey;
-
+            // Compute target URL first (needed for potential tab wake-up)
             String? targetUrl = sessionUrls[sessionKey];
-            String currentUrl = currentExtensionUrls[model] ?? "";
-
             if (targetUrl == null) {
               if (model == 'doubao')
                 targetUrl = 'https://www.doubao.com/chat/';
@@ -331,8 +316,53 @@ void main() {
               else if (model == 'copilot')
                 targetUrl = 'https://copilot.microsoft.com/';
               else
-                targetUrl = currentUrl;
+                targetUrl = currentExtensionUrls[model] ?? '';
             }
+
+            lastActivityTimes[model] = DateTime.now();
+
+            // If the tab was closed, try to wake it up via the manager
+            if (extensionWebSockets[model] == null) {
+              if (extensionWebSockets['_manager'] == null) {
+                completer.complete(
+                  Response(
+                    503,
+                    body: jsonEncode({"error": "Chrome 插件未连接 ($model)"}),
+                    headers: {'content-type': 'application/json'},
+                  ),
+                );
+                return;
+              }
+              Logger.info('Tab for $model is closed, waking up at $targetUrl...');
+              extensionWebSockets['_manager']!.sink.add(
+                jsonEncode({"action": "open_tab", "url": targetUrl}),
+              );
+              int attempts = 0;
+              while (attempts < 30) {
+                await Future.delayed(Duration(milliseconds: 500));
+                if (extensionWebSockets[model] != null &&
+                    currentExtensionUrls[model] != null) break;
+                attempts++;
+              }
+              if (extensionWebSockets[model] == null) {
+                completer.complete(
+                  Response(
+                    503,
+                    body: jsonEncode(
+                      {"error": "标签页唤起超时 ($model)"},
+                    ),
+                    headers: {'content-type': 'application/json'},
+                  ),
+                );
+                return;
+              }
+            }
+            Logger.info('Forwarding prompt to $model (session: $sessionId)...');
+            final reqCompleter = Completer<Response>();
+            pendingRequests[model] = reqCompleter;
+            pendingSessionKeys[model] = sessionKey;
+
+            String currentUrl = currentExtensionUrls[model] ?? "";
 
             if (currentUrl != targetUrl) {
               Logger.info('Navigating to target session URL: $targetUrl');
@@ -412,6 +442,24 @@ void main() {
       final server = await io.serve(handler, InternetAddress(host), port);
       Logger.info('HTTP server is starting...');
       Logger.info('Started server process [$pid]');
+
+      // Close idle model tabs after 5 minutes of inactivity
+      Timer.periodic(Duration(minutes: 1), (_) {
+        final now = DateTime.now();
+        for (final model in extensionWebSockets.keys.toList()) {
+          if (model == '_manager') continue;
+          if (pendingRequests.containsKey(model)) continue;
+          final lastActivity = lastActivityTimes[model];
+          if (lastActivity != null &&
+              now.difference(lastActivity) > Duration(minutes: 5)) {
+            Logger.info('Closing idle tab for model: $model');
+            extensionWebSockets[model]?.sink.add(
+              jsonEncode({"action": "navigate", "url": "about:blank"}),
+            );
+            lastActivityTimes.remove(model);
+          }
+        }
+      });
 
       if (host.contains(":")) {
         Logger.info(

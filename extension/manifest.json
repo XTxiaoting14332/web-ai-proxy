@@ -8,7 +8,8 @@
     "clipboardWrite",
     "debugger",
     "tabs",
-    "storage"
+    "storage",
+    "alarms"
   ],
   "action": {
     "default_popup": "popup.html",

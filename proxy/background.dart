@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
+import 'package:web/web.dart' as web;
 
 @JS('chrome')
 external JSObject get chrome;
@@ -74,7 +76,6 @@ void main() {
 
   final listener =
       ((JSObject request, JSObject sender, JSFunction sendResponse) {
-        final action = request.getProperty('action'.toJS) as JSString?;
 
         if (action != null && action.toDart == "activateTab") {
           final tab = sender.getProperty('tab'.toJS) as JSObject?;
@@ -124,6 +125,75 @@ void main() {
       }).toJS;
 
   onMessage.callMethod('addListener'.toJS, listener);
+
+  // Connect to backend as manager for tab lifecycle commands
+  initManagerWebSocket();
+
+  // Keep the service worker alive with a periodic alarm
+  final alarms = chrome.getProperty('alarms'.toJS) as JSObject;
+  alarms.callMethod(
+    'create'.toJS,
+    'keepalive'.toJS,
+    JSObject()..setProperty('periodInMinutes'.toJS, 0.4.toJS),
+  );
+  (alarms.getProperty('onAlarm'.toJS) as JSObject)
+      .callMethod('addListener'.toJS, ((JSObject _) {}).toJS);
+}
+
+web.WebSocket? _managerWs;
+
+void initManagerWebSocket() {
+  final ctx = globalContext;
+  final chromeObj = ctx.getProperty('chrome'.toJS) as JSObject;
+  final local = (chromeObj.getProperty('storage'.toJS) as JSObject)
+      .getProperty('local'.toJS) as JSObject;
+
+  final getCallback = ((JSObject result) {
+    final urlObj = result.getProperty('wsUrl'.toJS);
+    String wsUrl = 'ws://127.0.0.1:8080/ws';
+    if (urlObj != null && !urlObj.isUndefined) {
+      wsUrl = (urlObj as JSString).toDart;
+    }
+
+    _managerWs = web.WebSocket('$wsUrl?model=_manager');
+
+    _managerWs?.addEventListener(
+      'message',
+      ((web.Event event) {
+        final payload = (event as web.MessageEvent).data.toString();
+        try {
+          final data = jsonDecode(payload) as Map<String, dynamic>;
+          if (data['action'] == 'open_tab') {
+            final url = data['url']?.toString() ?? '';
+            if (url.isNotEmpty) {
+              final tabs = (globalContext.getProperty('chrome'.toJS) as JSObject)
+                  .getProperty('tabs'.toJS) as JSObject;
+              tabs.callMethod(
+                'create'.toJS,
+                JSObject()..setProperty('url'.toJS, url.toJS),
+              );
+            }
+          }
+        } catch (_) {}
+      }).toJS,
+    );
+
+    _managerWs?.addEventListener(
+      'close',
+      (web.Event _) {
+        Timer(Duration(seconds: 3), initManagerWebSocket);
+      }.toJS,
+    );
+
+    _managerWs?.addEventListener(
+      'error',
+      (web.Event _) {
+        print("Manager WebSocket error, will retry...");
+      }.toJS,
+    );
+  }).toJS;
+
+  local.callMethod('get'.toJS, ['wsUrl'.toJS].toJS, getCallback);
 }
 
 Future<void> _performPhysicalInput(
