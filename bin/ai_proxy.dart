@@ -11,7 +11,7 @@ import 'package:ai_proxy/logger.dart';
 
 Map<String, Completer<Response>> pendingRequests = {};
 Map<String, WebSocketChannel> extensionWebSockets = {};
-Map<String, Future<void>> modelQueues = {};
+Future<void> globalQueue = Future.value();
 Map<String, bool> isNavigating = {};
 
 Map<String, String> sessionUrls = {};
@@ -395,8 +395,7 @@ void main() {
           }
         }
 
-        final previousTask = modelQueues[model] ?? Future.value();
-        modelQueues[model] = previousTask
+        globalQueue = globalQueue
             .catchError((_) {})
             .then((_) => process());
 
