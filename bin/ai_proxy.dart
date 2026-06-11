@@ -325,9 +325,9 @@ void main() {
               else if (model == 'dola')
                 targetUrl = 'https://www.dola.com/';
               else if (model == 'qwen')
-                targetUrl = 'https://chat.qwen.ai/c/';
+                targetUrl = 'https://chat.qwen.ai/';
               else if (model == 'kimi')
-                targetUrl = 'https://kimi.moonshot.cn/';
+                targetUrl = 'https://www.kimi.com/';
               else if (model == 'copilot')
                 targetUrl = 'https://copilot.microsoft.com/';
               else
@@ -399,9 +399,7 @@ void main() {
           }
         }
 
-        globalQueue = globalQueue
-            .catchError((_) {})
-            .then((_) => process());
+        globalQueue = globalQueue.catchError((_) {}).then((_) => process());
 
         return completer.future;
       });

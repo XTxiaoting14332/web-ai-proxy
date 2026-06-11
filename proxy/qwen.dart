@@ -124,7 +124,13 @@ Future<void> _humanDelay(int minMs, int maxMs) async {
 
 Future<String?> reqAI(String prompt) async {
   try {
-    final inputElement = web.document.querySelector('.message-input-textarea');
+    // Wait for SPA to render the input (chat.qwen.ai/c/ loads asynchronously)
+    web.Element? inputElement;
+    for (int i = 0; i < 20; i++) {
+      inputElement = web.document.querySelector('.message-input-textarea');
+      if (inputElement != null) break;
+      await Future.delayed(Duration(milliseconds: 500));
+    }
     if (inputElement == null) return jsonEncode({"error": "Input element not found"});
 
     final inputArea = inputElement as web.HTMLTextAreaElement;

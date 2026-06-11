@@ -50,6 +50,12 @@ sleep 4
 chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chat.z.ai" &
 sleep 4
 chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://dola.com" &
+sleep 4
+chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://chat.qwen.ai" &
+sleep 4
+chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://www.kimi.com" &
+sleep 4
+chromium --no-sandbox --disable-translate --lang=zh-CN --accept-lang=zh-CN,zh --user-data-dir=/app/userdata "https://copilot.microsoft.com" &
 
 # 阻塞脚本，防止 Docker 容器退出
 wait $CHROMIUM_PID
