@@ -49,7 +49,7 @@
       "run_at": "document_end"
     },
     {
-      "matches": ["https://kimi.moonshot.cn/*"],
+      "matches": ["https://www.kimi.com/*"],
       "js": ["kimi.js"],
       "run_at": "document_end"
     },
