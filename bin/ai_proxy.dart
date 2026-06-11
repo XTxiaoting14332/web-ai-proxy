@@ -326,6 +326,10 @@ void main() {
                 targetUrl = 'https://www.dola.com/';
               else if (model == 'qwen')
                 targetUrl = 'https://chat.qwen.ai/c/';
+              else if (model == 'kimi')
+                targetUrl = 'https://kimi.moonshot.cn/';
+              else if (model == 'copilot')
+                targetUrl = 'https://copilot.microsoft.com/';
               else
                 targetUrl = currentUrl;
             }

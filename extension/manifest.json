@@ -44,8 +44,18 @@
       "run_at": "document_end"
     },
     {
-      "matches": ["https://tongyi.aliyun.com/*"],
+      "matches": ["https://chat.qwen.ai/*"],
       "js": ["qwen.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://kimi.moonshot.cn/*"],
+      "js": ["kimi.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://copilot.microsoft.com/*"],
+      "js": ["copilot.js"],
       "run_at": "document_end"
     }
   ]
