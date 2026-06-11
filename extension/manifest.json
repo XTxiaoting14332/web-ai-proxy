@@ -42,6 +42,11 @@
       "matches": ["https://www.dola.com/*"],
       "js": ["dola.js"],
       "run_at": "document_end"
+    },
+    {
+      "matches": ["https://tongyi.aliyun.com/*"],
+      "js": ["qwen.js"],
+      "run_at": "document_end"
     }
   ]
 }

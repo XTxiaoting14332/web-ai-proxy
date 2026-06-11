@@ -22,7 +22,9 @@ void loadSessions() {
   final sessionFile = File('userdata/sessions.json');
   if (sessionFile.existsSync()) {
     try {
-      sessionUrls = Map<String, String>.from(jsonDecode(sessionFile.readAsStringSync()));
+      sessionUrls = Map<String, String>.from(
+        jsonDecode(sessionFile.readAsStringSync()),
+      );
     } catch (_) {}
   }
 }
@@ -31,7 +33,9 @@ void saveSessions() {
   final dir = Directory('userdata');
   if (!dir.existsSync()) dir.createSync(recursive: true);
   final sessionFile = File('userdata/sessions.json');
-  sessionFile.writeAsStringSync(JsonEncoder.withIndent('  ').convert(sessionUrls));
+  sessionFile.writeAsStringSync(
+    JsonEncoder.withIndent('  ').convert(sessionUrls),
+  );
 }
 
 Middleware customLogRequests() {
@@ -103,7 +107,10 @@ void main() {
       }
 
       final host = Platform.environment['HOST'] ?? config['host'] ?? '0.0.0.0';
-      final port = int.tryParse(Platform.environment['PORT'] ?? '') ?? config['port'] ?? 8080;
+      final port =
+          int.tryParse(Platform.environment['PORT'] ?? '') ??
+          config['port'] ??
+          8080;
       final apiKey = Platform.environment['API_KEY'] ?? config['api_key'] ?? '';
 
       if (Platform.environment['API_KEY'] != null) {
@@ -141,16 +148,25 @@ void main() {
                 final decoded = jsonDecode(message.toString());
                 if (decoded is Map<String, dynamic>) {
                   if (decoded['action'] == 'register') {
-                    currentExtensionUrls[model] = decoded['url']?.toString() ?? '';
-                    Logger.debug('Model $model registered URL: ${currentExtensionUrls[model]}');
+                    currentExtensionUrls[model] =
+                        decoded['url']?.toString() ?? '';
+                    Logger.debug(
+                      'Model $model registered URL: ${currentExtensionUrls[model]}',
+                    );
                     return;
                   }
 
-                  if (decoded['action'] == 'success' || decoded.containsKey("answer")) {
-                    if (pendingRequests[model] != null && !pendingRequests[model]!.isCompleted) {
-                      String finalResponse = decoded["answer"]?.toString() ?? decoded["response"]?.toString() ?? message.toString();
+                  if (decoded['action'] == 'success' ||
+                      decoded.containsKey("answer")) {
+                    if (pendingRequests[model] != null &&
+                        !pendingRequests[model]!.isCompleted) {
+                      String finalResponse =
+                          decoded["answer"]?.toString() ??
+                          decoded["response"]?.toString() ??
+                          message.toString();
                       String? thinking;
-                      if (decoded.containsKey("thinking") && decoded["thinking"].toString().isNotEmpty) {
+                      if (decoded.containsKey("thinking") &&
+                          decoded["thinking"].toString().isNotEmpty) {
                         thinking = decoded["thinking"].toString();
                       }
 
@@ -180,7 +196,8 @@ void main() {
                 }
               } catch (_) {
                 // Legacy fallback for raw strings
-                if (pendingRequests[model] != null && !pendingRequests[model]!.isCompleted) {
+                if (pendingRequests[model] != null &&
+                    !pendingRequests[model]!.isCompleted) {
                   Logger.debug('Received legacy reply from model: $model');
                   final responseBody = {
                     "status": "success",
@@ -199,12 +216,19 @@ void main() {
               Logger.warn('WebSocket connection closed for model: $model');
               extensionWebSockets.remove(model);
               currentExtensionUrls.remove(model);
-              if (pendingRequests[model] != null && !pendingRequests[model]!.isCompleted && !(isNavigating[model] ?? false)) {
-                 pendingRequests[model]!.complete(Response.internalServerError(
-                   body: jsonEncode({"error": "WebSocket connection closed unexpectedly during generation (Page reloaded?)"}),
-                   headers: {'content-type': 'application/json'}
-                 ));
-                 pendingRequests.remove(model);
+              if (pendingRequests[model] != null &&
+                  !pendingRequests[model]!.isCompleted &&
+                  !(isNavigating[model] ?? false)) {
+                pendingRequests[model]!.complete(
+                  Response.internalServerError(
+                    body: jsonEncode({
+                      "error":
+                          "WebSocket connection closed unexpectedly during generation (Page reloaded?)",
+                    }),
+                    headers: {'content-type': 'application/json'},
+                  ),
+                );
+                pendingRequests.remove(model);
               }
             },
             onError: (error) {
@@ -222,19 +246,29 @@ void main() {
         final data = jsonDecode(payload);
         final model = data['model'] ?? 'gemini';
         final sessionId = data['session_id'];
-        
+
         if (sessionId == null) {
-          return Response(400, body: jsonEncode({"error": "Missing session_id"}), headers: {'content-type': 'application/json'});
+          return Response(
+            400,
+            body: jsonEncode({"error": "Missing session_id"}),
+            headers: {'content-type': 'application/json'},
+          );
         }
-        
+
         final sessionKey = "${model}_$sessionId";
         if (sessionUrls.containsKey(sessionKey)) {
           sessionUrls.remove(sessionKey);
           saveSessions();
           Logger.info('Deleted session: $sessionKey');
-          return Response.ok(jsonEncode({"status": "success", "message": "Session deleted"}), headers: {'content-type': 'application/json'});
+          return Response.ok(
+            jsonEncode({"status": "success", "message": "Session deleted"}),
+            headers: {'content-type': 'application/json'},
+          );
         }
-        return Response.notFound(jsonEncode({"error": "Session not found"}), headers: {'content-type': 'application/json'});
+        return Response.notFound(
+          jsonEncode({"error": "Session not found"}),
+          headers: {'content-type': 'application/json'},
+        );
       });
 
       app.post('/api/chat', (Request request) async {
@@ -278,56 +312,79 @@ void main() {
 
             String? targetUrl = sessionUrls[sessionKey];
             String currentUrl = currentExtensionUrls[model] ?? "";
-            
+
             if (targetUrl == null) {
-               if (model == 'doubao') targetUrl = 'https://www.doubao.com/chat/';
-               else if (model == 'gemini') targetUrl = 'https://gemini.google.com/app';
-               else if (model == 'gpt') targetUrl = 'https://chatgpt.com/';
-               else if (model == 'glm') targetUrl = 'https://chat.z.ai/';
-               else if (model == 'dola') targetUrl = 'https://www.dola.com/';
-               else targetUrl = currentUrl;
+              if (model == 'doubao')
+                targetUrl = 'https://www.doubao.com/chat/';
+              else if (model == 'gemini')
+                targetUrl = 'https://gemini.google.com/app';
+              else if (model == 'gpt')
+                targetUrl = 'https://chatgpt.com/';
+              else if (model == 'glm')
+                targetUrl = 'https://chat.z.ai/';
+              else if (model == 'dola')
+                targetUrl = 'https://www.dola.com/';
+              else if (model == 'qwen')
+                targetUrl = 'https://chat.qwen.ai/c/';
+              else
+                targetUrl = currentUrl;
             }
 
             if (currentUrl != targetUrl) {
-               Logger.info('Navigating to target session URL: $targetUrl');
-               isNavigating[model] = true;
-               extensionWebSockets[model]!.sink.add(jsonEncode({"action": "navigate", "url": targetUrl}));
-               
-               // Wait for WS to drop
-               int attempts = 0;
-               while (attempts < 10) {
-                 await Future.delayed(Duration(milliseconds: 200));
-                 if (extensionWebSockets[model] == null) break;
-                 attempts++;
-               }
+              Logger.info('Navigating to target session URL: $targetUrl');
+              isNavigating[model] = true;
+              extensionWebSockets[model]!.sink.add(
+                jsonEncode({"action": "navigate", "url": targetUrl}),
+              );
 
-               // Wait for WS to reconnect
-               attempts = 0;
-               while (attempts < 50) { // 10 seconds timeout
-                 await Future.delayed(Duration(milliseconds: 200));
-                 if (extensionWebSockets[model] != null && currentExtensionUrls[model] != null) {
-                    break;
-                 }
-                 attempts++;
-               }
-               
-               isNavigating[model] = false;
-               
-               if (attempts >= 50) {
-                   throw Exception("Timeout waiting for browser to navigate to session URL");
-               }
-               // Short delay to let the SPA initialize DOM elements
-               await Future.delayed(Duration(milliseconds: 1500));
+              // Wait for WS to drop
+              int attempts = 0;
+              while (attempts < 10) {
+                await Future.delayed(Duration(milliseconds: 200));
+                if (extensionWebSockets[model] == null) break;
+                attempts++;
+              }
+
+              // Wait for WS to reconnect
+              attempts = 0;
+              while (attempts < 50) {
+                await Future.delayed(Duration(milliseconds: 200));
+                if (extensionWebSockets[model] != null &&
+                    currentExtensionUrls[model] != null) {
+                  break;
+                }
+                attempts++;
+              }
+
+              isNavigating[model] = false;
+
+              if (attempts >= 50) {
+                throw Exception(
+                  "Timeout waiting for browser to navigate to session URL",
+                );
+              }
+              await Future.delayed(Duration(milliseconds: 1500));
             }
-            
-            extensionWebSockets[model]!.sink.add(jsonEncode({"action": "prompt", "text": prompt}));
+
+            if (extensionWebSockets[model] == null) {
+              throw Exception(
+                "Extension disconnected after navigation ($model page reload?)",
+              );
+            }
+
+            extensionWebSockets[model]!.sink.add(
+              jsonEncode({"action": "prompt", "text": prompt}),
+            );
 
             final response = await reqCompleter.future;
             completer.complete(response);
           } catch (e) {
             if (!completer.isCompleted) {
               completer.complete(
-                Response.internalServerError(body: jsonEncode({"error": e.toString()}), headers: {'content-type': 'application/json'}),
+                Response.internalServerError(
+                  body: jsonEncode({"error": e.toString()}),
+                  headers: {'content-type': 'application/json'},
+                ),
               );
             }
             pendingRequests.remove(model);
