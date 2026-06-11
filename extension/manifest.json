@@ -53,11 +53,6 @@
       "matches": ["https://www.kimi.com/*"],
       "js": ["kimi.js"],
       "run_at": "document_end"
-    },
-    {
-      "matches": ["https://copilot.microsoft.com/*"],
-      "js": ["copilot.js"],
-      "run_at": "document_end"
     }
   ]
 }

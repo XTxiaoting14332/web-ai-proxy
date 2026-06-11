@@ -313,8 +313,6 @@ void main() {
                 targetUrl = 'https://chat.qwen.ai/';
               else if (model == 'kimi')
                 targetUrl = 'https://www.kimi.com/';
-              else if (model == 'copilot')
-                targetUrl = 'https://copilot.microsoft.com/';
               else
                 targetUrl = currentExtensionUrls[model] ?? '';
             }

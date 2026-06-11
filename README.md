@@ -42,7 +42,6 @@
 | GLM (z.ai) | `https://chat.z.ai` | `glm` |
 | 通义千问 (Qwen) | `https://chat.qwen.ai` | `qwen` |
 | Kimi | `https://www.kimi.com` | `kimi` |
-| Copilot | `https://copilot.microsoft.com` | `copilot` |
 
 (后续将支持更多)
 
@@ -62,7 +61,7 @@ curl -X POST http://127.0.0.1:8080/api/chat \
     "session_id": "user_12345"
   }'
 ```
-*(支持的 model: `gemini`, `gpt`, `doubao`, `glm`, `dola`, `qwen`, `kimi`, `copilot`)*
+*(支持的 model: `gemini`, `gpt`, `doubao`, `glm`, `dola`, `qwen`, `kimi`)*
 *(可选的 session_id: 传入唯一标识符即可实现基于该身份的多轮对话隔离。如果不传，则所有请求共享同一个默认上下文)*
 
 **成功返回示例：**

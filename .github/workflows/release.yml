@@ -209,7 +209,6 @@ jobs:
           dart compile js proxy/dola.dart -O3 -o extension/dola.js
           dart compile js proxy/qwen.dart -O3 -o extension/qwen.js
           dart compile js proxy/kimi.dart -O3 -o extension/kimi.js
-          dart compile js proxy/copilot.dart -O3 -o extension/copilot.js
           dart compile js proxy/popup.dart -O3 -o extension/popup.js
           cd extension
           zip -r ../dist/web-ai-proxy-extension.zip *
