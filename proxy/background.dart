@@ -76,6 +76,7 @@ void main() {
 
   final listener =
       ((JSObject request, JSObject sender, JSFunction sendResponse) {
+        final action = request.getProperty('action'.toJS) as JSString?;
 
         if (action != null && action.toDart == "activateTab") {
           final tab = sender.getProperty('tab'.toJS) as JSObject?;
