@@ -336,13 +336,17 @@ void main() {
                 jsonEncode({"action": "open_tab", "url": targetUrl}),
               );
               int attempts = 0;
-              while (attempts < 30) {
+              while (attempts < 60) {
                 await Future.delayed(Duration(milliseconds: 500));
                 if (extensionWebSockets[model] != null &&
-                    currentExtensionUrls[model] != null) break;
+                    currentExtensionUrls[model] != null) {
+                  Logger.info('Tab for $model woke up after ${attempts * 500}ms');
+                  break;
+                }
                 attempts++;
               }
               if (extensionWebSockets[model] == null) {
+                Logger.error('Tab wake-up timed out for $model after 30s');
                 completer.complete(
                   Response(
                     503,
@@ -354,6 +358,8 @@ void main() {
                 );
                 return;
               }
+              // Give the freshly opened tab extra time to fully load
+              await Future.delayed(Duration(seconds: 2));
             }
             Logger.info('Forwarding prompt to $model (session: $sessionId)...');
             final reqCompleter = Completer<Response>();
@@ -451,9 +457,15 @@ void main() {
           if (lastActivity != null &&
               now.difference(lastActivity) > Duration(minutes: 5)) {
             Logger.info('Closing idle tab for model: $model');
-            extensionWebSockets[model]?.sink.add(
-              jsonEncode({"action": "navigate", "url": "about:blank"}),
-            );
+            // Tell the _manager to close the tab, not navigate to about:blank
+            if (extensionWebSockets['_manager'] != null) {
+              extensionWebSockets['_manager']!.sink.add(
+                jsonEncode({"action": "close_tab", "model": model}),
+              );
+            } else {
+              // Fallback: just disconnect the content script's WS
+              extensionWebSockets[model]?.sink.close();
+            }
             lastActivityTimes.remove(model);
           }
         }

@@ -68,6 +68,9 @@ Future<void> detachDebugger(JSObject target) {
   return completer.future;
 }
 
+// Track which tabId belongs to which model
+Map<String, int> modelTabIds = {};
+
 void main() {
   print("Background Service Worker loaded!");
 
@@ -83,6 +86,25 @@ void main() {
           if (tab != null) {
             final tabId = tab.getProperty('id'.toJS) as JSNumber;
             final windowId = tab.getProperty('windowId'.toJS) as JSNumber;
+
+            // Detect model from tab URL to track tabId
+            final tabUrl = tab.getProperty('url'.toJS) as JSString?;
+            if (tabUrl != null) {
+              final url = tabUrl.toDart;
+              String? model;
+              if (url.contains('chat.z.ai')) model = 'glm';
+              else if (url.contains('gemini.google.com')) model = 'gemini';
+              else if (url.contains('chatgpt.com')) model = 'gpt';
+              else if (url.contains('www.doubao.com')) model = 'doubao';
+              else if (url.contains('www.dola.com')) model = 'dola';
+              else if (url.contains('chat.qwen.ai')) model = 'qwen';
+              else if (url.contains('www.kimi.com')) model = 'kimi';
+              if (model != null) {
+                modelTabIds[model] = tabId.toDartInt;
+                print("Tracked tab $tabId for model $model");
+              }
+            }
+
             final chromeTabs = chrome.getProperty('tabs'.toJS) as JSObject;
             chromeTabs.callMethod('update'.toJS, tabId, JSObject()..setProperty('active'.toJS, true.toJS));
             final chromeWindows = chrome.getProperty('windows'.toJS) as JSObject;
@@ -169,10 +191,39 @@ void initManagerWebSocket() {
             if (url.isNotEmpty) {
               final tabs = (globalContext.getProperty('chrome'.toJS) as JSObject)
                   .getProperty('tabs'.toJS) as JSObject;
+              final createCallback = ((JSObject newTab) {
+                final newTabId = (newTab.getProperty('id'.toJS) as JSNumber).toDartInt;
+                // Detect model from URL to track the new tab
+                String? model;
+                if (url.contains('chat.z.ai')) model = 'glm';
+                else if (url.contains('gemini.google.com')) model = 'gemini';
+                else if (url.contains('chatgpt.com')) model = 'gpt';
+                else if (url.contains('www.doubao.com')) model = 'doubao';
+                else if (url.contains('www.dola.com')) model = 'dola';
+                else if (url.contains('chat.qwen.ai')) model = 'qwen';
+                else if (url.contains('www.kimi.com')) model = 'kimi';
+                if (model != null) {
+                  modelTabIds[model] = newTabId;
+                  print("Tracked new tab $newTabId for model $model");
+                }
+              }).toJS;
               tabs.callMethod(
                 'create'.toJS,
                 JSObject()..setProperty('url'.toJS, url.toJS),
+                createCallback,
               );
+            }
+          } else if (data['action'] == 'close_tab') {
+            final model = data['model']?.toString() ?? '';
+            if (model.isNotEmpty && modelTabIds.containsKey(model)) {
+              final tabId = modelTabIds[model]!;
+              print("Closing tab $tabId for idle model $model");
+              final tabs = (globalContext.getProperty('chrome'.toJS) as JSObject)
+                  .getProperty('tabs'.toJS) as JSObject;
+              tabs.callMethod('remove'.toJS, tabId.toJS);
+              modelTabIds.remove(model);
+            } else {
+              print("No tracked tab for model $model, skipping close");
             }
           }
         } catch (_) {}
