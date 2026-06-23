@@ -111,6 +111,52 @@ curl -X DELETE http://127.0.0.1:8080/api/chat/session \
   }'
 ```
 
+### 6. OpenAI & Anthropic 格式兼容
+
+本项目直接内置了两个标准化协议兼容层。无需修改任何客户端代码，只需将 Base URL 指向本服务，即可让常见的第三方客户端（如 Open WebUI、LobeChat、Cursor、Continue.dev 等）直接通过本服务调用网页 AI 模型。
+
+**OpenAI 格式客户端配置 (如 Python `openai` 库)：**
+- Base URL: `http://127.0.0.1:8080/v1`
+- API Key: `<你的 API Key>`
+- Model: `gemini`, `gpt`, `doubao`, `qwen`, `kimi` 等关键词皆可自动映射。
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="your_api_key",
+    base_url="http://127.0.0.1:8080/v1",
+)
+
+response = client.chat.completions.create(
+    model="gemini",
+    messages=[{"role": "user", "content": "你好"}],
+    stream=True,
+)
+for chunk in response:
+    print(chunk.choices[0].delta.content or "", end="", flush=True)
+```
+
+**Anthropic 格式客户端配置 (如 Python `anthropic` 库)：**
+- Base URL: `http://127.0.0.1:8080/anthropic`
+- API Key: `<你的 API Key>` (通过 `x-api-key` header 传递)
+
+```python
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="your_api_key",
+    base_url="http://127.0.0.1:8080/anthropic",
+)
+
+message = client.messages.create(
+    model="gemini",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "你好"}],
+)
+print(message.content[0].text)
+```
+
 ## 🐳Docker 部署
 
 > **硬件推荐**：由于内部集成了 Chromium 浏览器和完整桌面环境，容器运行的常态内存占用约为 500MB。推荐宿主机服务器配置为 **RAM ≥ 1GB**，以防止系统触发 OOM。
