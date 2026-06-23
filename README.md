@@ -61,6 +61,22 @@ curl -X POST http://127.0.0.1:8080/api/chat \
     "session_id": "user_12345"
   }'
 ```
+
+**流式输出 (SSE) 调用：**
+在请求体中加入 `"sse": true` 即可启用流式输出。为避免 curl 缓存，建议使用 `-N` 参数：
+
+```bash
+curl -N -X POST http://127.0.0.1:8080/api/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <API_KEY>" \
+  -d '{
+    "model": "gemini",
+    "prompt": "请给我写一个关于大海的简短诗歌。",
+    "session_id": "user_12345",
+    "sse": true
+  }'
+```
+
 *(支持的 model: `gemini`, `gpt`, `doubao`, `glm`, `dola`, `qwen`, `kimi`)*
 *(可选的 session_id: 传入唯一标识符即可实现基于该身份的多轮对话隔离。如果不传，则所有请求共享同一个默认上下文)*
 
