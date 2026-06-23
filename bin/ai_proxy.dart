@@ -42,6 +42,36 @@ void saveSessions() {
   );
 }
 
+String mapModelName(String clientModel) {
+  final m = clientModel.toLowerCase();
+  if (m.contains('gemini'))                         return 'gemini';
+  if (m.contains('gpt') || m.contains('openai'))    return 'gpt';
+  if (m.contains('doubao') || m.contains('skylark')) return 'doubao';
+  if (m.contains('glm') || m.contains('z.ai'))      return 'glm';
+  if (m.contains('qwen') || m.contains('tongyi'))   return 'qwen';
+  if (m.contains('kimi') || m.contains('moonshot')) return 'kimi';
+  if (m.contains('dola'))                           return 'dola';
+  return 'gemini';
+}
+
+String extractLastUserMessage(List<dynamic> messages) {
+  for (int i = messages.length - 1; i >= 0; i--) {
+    final msg = messages[i];
+    if (msg is Map && msg['role'] == 'user') {
+      final content = msg['content'];
+      if (content is String) return content;
+      if (content is List) {
+        for (final block in content) {
+          if (block is Map && block['type'] == 'text') {
+            return (block['text'] ?? '').toString();
+          }
+        }
+      }
+    }
+  }
+  return '';
+}
+
 Middleware customLogRequests() {
   return (Handler innerHandler) {
     return (Request request) async {
@@ -73,9 +103,13 @@ Middleware customLogRequests() {
 Middleware apiAuthMiddleware(String apiKey) {
   return (Handler innerHandler) {
     return (Request request) {
-      if (request.url.path.startsWith('api/')) {
+      if (request.url.path.startsWith('api/') ||
+          request.url.path.startsWith('v1/') ||
+          request.url.path.startsWith('anthropic/')) {
+        // 支持 Authorization: Bearer <key> 和 x-api-key: <key> 两种方式
         final authHeader = request.headers['authorization'];
-        final token = authHeader?.replaceFirst('Bearer ', '') ?? '';
+        final xApiKey = request.headers['x-api-key'];
+        final token = authHeader?.replaceFirst('Bearer ', '') ?? xApiKey ?? '';
 
         if (token != apiKey) {
           Logger.warn('Unauthorized access attempt to /${request.url.path}');
@@ -513,6 +547,494 @@ void main() {
             await sink.close();
           });
         }
+      });
+
+      app.post('/v1/chat/completions', (Request request) async {
+        // 1. 解析请求体
+        final payload = await request.readAsString();
+        Map<String, dynamic> data;
+        try {
+          data = jsonDecode(payload) as Map<String, dynamic>;
+        } catch (_) {
+          return Response(
+            400,
+            body: jsonEncode({"error": {"message": "Invalid JSON", "type": "invalid_request_error"}}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        // 2. 提取字段
+        final clientModel = (data['model'] ?? 'gemini').toString();
+        final model = mapModelName(clientModel);
+        final messages = data['messages'];
+        if (messages == null || messages is! List || messages.isEmpty) {
+          return Response(
+            400,
+            body: jsonEncode({"error": {"message": "messages is required", "type": "invalid_request_error"}}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        final prompt = extractLastUserMessage(messages as List<dynamic>);
+        if (prompt.isEmpty) {
+          return Response(
+            400,
+            body: jsonEncode({"error": {"message": "No user message found", "type": "invalid_request_error"}}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        final bool isStream = data['stream'] == true;
+        final sessionId = (data['user'] ?? 'default').toString();
+        final sessionKey = '${model}_$sessionId';
+
+        // 3. 检查插件连接
+        if (extensionWebSockets[model] == null && extensionWebSockets['_manager'] == null) {
+          return Response(
+            503,
+            body: jsonEncode({"error": {"message": "Chrome 插件未连接 ($model)", "type": "server_error"}}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        Logger.info('[OpenAI Compat] model=$model, stream=$isStream, session=$sessionId');
+
+        // 4. 生成唯一 completion id
+        final completionId = 'chatcmpl-${Uuid().v4().substring(0, 8)}';
+        final createdTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+        // 5. 复用内部 process 逻辑（与 /api/chat 完全相同的结构）
+        final completer = Completer<Response>();
+
+        Future<void> process() async {
+          try {
+            String? targetUrl = sessionUrls[sessionKey];
+            if (targetUrl == null) {
+              if (model == 'doubao')      targetUrl = 'https://www.doubao.com/chat/';
+              else if (model == 'gemini') targetUrl = 'https://gemini.google.com/app';
+              else if (model == 'gpt')    targetUrl = 'https://chatgpt.com/';
+              else if (model == 'glm')    targetUrl = 'https://chat.z.ai/';
+              else if (model == 'dola')   targetUrl = 'https://www.dola.com/';
+              else if (model == 'qwen')   targetUrl = 'https://chat.qwen.ai/';
+              else if (model == 'kimi')   targetUrl = 'https://www.kimi.com/';
+              else                        targetUrl = currentExtensionUrls[model] ?? '';
+            }
+
+            lastActivityTimes[model] = DateTime.now();
+
+            if (extensionWebSockets[model] == null) {
+              if (extensionWebSockets['_manager'] == null) {
+                completer.complete(Response(503,
+                  body: jsonEncode({"error": {"message": "Chrome 插件未连接 ($model)", "type": "server_error"}}),
+                  headers: {'content-type': 'application/json'},
+                ));
+                return;
+              }
+              extensionWebSockets['_manager']!.sink.add(jsonEncode({"action": "open_tab", "url": targetUrl}));
+              int attempts = 0;
+              while (attempts < 60) {
+                await Future.delayed(Duration(milliseconds: 500));
+                if (extensionWebSockets[model] != null && currentExtensionUrls[model] != null) break;
+                attempts++;
+              }
+              if (extensionWebSockets[model] == null) {
+                completer.complete(Response(503,
+                  body: jsonEncode({"error": {"message": "标签页唤起超时 ($model)", "type": "server_error"}}),
+                  headers: {'content-type': 'application/json'},
+                ));
+                return;
+              }
+              await Future.delayed(Duration(seconds: 2));
+            }
+
+            final reqCompleter = Completer<Response>();
+            pendingRequests[model] = reqCompleter;
+            pendingSessionKeys[model] = sessionKey;
+
+            String currentUrl = currentExtensionUrls[model] ?? '';
+            if (currentUrl != targetUrl) {
+              isNavigating[model] = true;
+              extensionWebSockets[model]!.sink.add(jsonEncode({"action": "navigate", "url": targetUrl}));
+              int attempts = 0;
+              while (attempts < 10) {
+                await Future.delayed(Duration(milliseconds: 200));
+                if (extensionWebSockets[model] == null) break;
+                attempts++;
+              }
+              attempts = 0;
+              while (attempts < 50) {
+                await Future.delayed(Duration(milliseconds: 200));
+                if (extensionWebSockets[model] != null && currentExtensionUrls[model] != null) break;
+                attempts++;
+              }
+              isNavigating[model] = false;
+              if (attempts >= 50) throw Exception("Timeout waiting for navigation");
+              await Future.delayed(Duration(milliseconds: 1500));
+            }
+
+            if (extensionWebSockets[model] == null) {
+              throw Exception("Extension disconnected after navigation");
+            }
+
+            extensionWebSockets[model]!.sink.add(jsonEncode({"action": "prompt", "text": prompt, "sse": isStream}));
+
+            final innerResponse = await reqCompleter.future;
+            // innerResponse 是原始 /api/chat 格式的 Response，我们不直接用 body
+            // 此处我们需要从 pendingRequests 完成后拿到响应文本。
+            // 但实际上 reqCompleter 完成时返回的是 Response 对象，我们解析其 body。
+            final bodyStr = await innerResponse.readAsString();
+            final bodyJson = jsonDecode(bodyStr) as Map<String, dynamic>;
+            final responseText = bodyJson['response']?.toString() ?? bodyJson['answer']?.toString() ?? '';
+
+            // 格式化为 OpenAI 格式
+            final openAIResponse = {
+              "id": completionId,
+              "object": "chat.completion",
+              "created": createdTs,
+              "model": clientModel,
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {"role": "assistant", "content": responseText},
+                  "finish_reason": "stop",
+                }
+              ],
+              "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            };
+            completer.complete(Response.ok(
+              jsonEncode(openAIResponse),
+              headers: {'content-type': 'application/json'},
+            ));
+          } catch (e) {
+            if (!completer.isCompleted) {
+              completer.complete(Response(500,
+                body: jsonEncode({"error": {"message": e.toString(), "type": "server_error"}}),
+                headers: {'content-type': 'application/json'},
+              ));
+            }
+            if (sseControllers.containsKey(model) && !sseControllers[model]!.isClosed) {
+              sseControllers[model]!.close();
+              sseControllers.remove(model);
+            }
+            pendingRequests.remove(model);
+          } finally {
+            await Future.delayed(Duration(seconds: 6));
+          }
+        }
+
+        if (!isStream) {
+          globalQueue = globalQueue.catchError((_) {}).then((_) => process());
+          return completer.future;
+        }
+
+        // SSE 流式响应
+        return request.hijack((channel) async {
+          final sseController = StreamController<String>();
+          sseControllers[model] = sseController;
+
+          globalQueue = globalQueue.catchError((_) {}).then((_) => process());
+
+          final sink = channel.sink;
+          sink.add(utf8.encode(
+            'HTTP/1.1 200 OK\r\n'
+            'Content-Type: text/event-stream; charset=utf-8\r\n'
+            'Cache-Control: no-cache\r\n'
+            'Connection: keep-alive\r\n'
+            'X-Accel-Buffering: no\r\n'
+            'Access-Control-Allow-Origin: *\r\n'
+            '\r\n',
+          ));
+
+          // 发送 role 初始化 chunk
+          final initChunk = jsonEncode({
+            "id": completionId, "object": "chat.completion.chunk",
+            "created": createdTs, "model": clientModel,
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}],
+          });
+          sink.add(utf8.encode('data: $initChunk\n\n'));
+
+          try {
+            await for (final sseEvent in sseController.stream) {
+              // sseEvent 是内部格式：'data: {"delta":"..."}\n\n' 或 'data: {"done":true,...}\n\n'
+              // 需要转换为 OpenAI chunk 格式
+              final raw = sseEvent.trim();
+              if (!raw.startsWith('data: ')) continue;
+              final jsonStr = raw.substring(6);
+              try {
+                final eventData = jsonDecode(jsonStr) as Map<String, dynamic>;
+                if (eventData.containsKey('delta')) {
+                  // 增量 chunk
+                  final deltaText = eventData['delta']?.toString() ?? '';
+                  final chunk = jsonEncode({
+                    "id": completionId, "object": "chat.completion.chunk",
+                    "created": createdTs, "model": clientModel,
+                    "choices": [{"index": 0, "delta": {"content": deltaText}, "finish_reason": null}],
+                  });
+                  sink.add(utf8.encode('data: $chunk\n\n'));
+                } else if (eventData['done'] == true) {
+                  // 结束 chunk
+                  final stopChunk = jsonEncode({
+                    "id": completionId, "object": "chat.completion.chunk",
+                    "created": createdTs, "model": clientModel,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                  });
+                  sink.add(utf8.encode('data: $stopChunk\n\n'));
+                  sink.add(utf8.encode('data: [DONE]\n\n'));
+                } else if (eventData.containsKey('error')) {
+                  final errChunk = jsonEncode({
+                    "id": completionId, "object": "chat.completion.chunk",
+                    "created": createdTs, "model": clientModel,
+                    "choices": [{"index": 0, "delta": {"content": "[Error: ${eventData['error']}]"}, "finish_reason": "stop"}],
+                  });
+                  sink.add(utf8.encode('data: $errChunk\n\n'));
+                  sink.add(utf8.encode('data: [DONE]\n\n'));
+                }
+              } catch (_) {}
+            }
+          } catch (_) {}
+
+          await sink.close();
+        });
+      });
+
+      app.post('/anthropic/v1/messages', (Request request) async {
+        // 1. 解析请求体
+        final payload = await request.readAsString();
+        Map<String, dynamic> data;
+        try {
+          data = jsonDecode(payload) as Map<String, dynamic>;
+        } catch (_) {
+          return Response(
+            400,
+            body: jsonEncode({"type": "error", "error": {"type": "invalid_request_error", "message": "Invalid JSON"}}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        // 2. 提取字段
+        final clientModel = (data['model'] ?? 'gemini').toString();
+        final model = mapModelName(clientModel);
+        final messages = data['messages'];
+        if (messages == null || messages is! List || messages.isEmpty) {
+          return Response(
+            400,
+            body: jsonEncode({"type": "error", "error": {"type": "invalid_request_error", "message": "messages is required"}}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        final prompt = extractLastUserMessage(messages as List<dynamic>);
+        if (prompt.isEmpty) {
+          return Response(
+            400,
+            body: jsonEncode({"type": "error", "error": {"type": "invalid_request_error", "message": "No user message found"}}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        final bool isStream = data['stream'] == true;
+        final sessionId = 'default'; // Anthropic 无 user 字段，统一用 default
+        final sessionKey = '${model}_$sessionId';
+
+        // 3. 检查插件连接
+        if (extensionWebSockets[model] == null && extensionWebSockets['_manager'] == null) {
+          return Response(
+            503,
+            body: jsonEncode({"type": "error", "error": {"type": "overloaded_error", "message": "Chrome 插件未连接 ($model)"}}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        Logger.info('[Anthropic Compat] model=$model, stream=$isStream');
+
+        final msgId = 'msg_${Uuid().v4().substring(0, 8)}';
+        final createdTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+        final completer = Completer<Response>();
+
+        Future<void> process() async {
+          try {
+            String? targetUrl = sessionUrls[sessionKey];
+            if (targetUrl == null) {
+              if (model == 'doubao')      targetUrl = 'https://www.doubao.com/chat/';
+              else if (model == 'gemini') targetUrl = 'https://gemini.google.com/app';
+              else if (model == 'gpt')    targetUrl = 'https://chatgpt.com/';
+              else if (model == 'glm')    targetUrl = 'https://chat.z.ai/';
+              else if (model == 'dola')   targetUrl = 'https://www.dola.com/';
+              else if (model == 'qwen')   targetUrl = 'https://chat.qwen.ai/';
+              else if (model == 'kimi')   targetUrl = 'https://www.kimi.com/';
+              else                        targetUrl = currentExtensionUrls[model] ?? '';
+            }
+
+            lastActivityTimes[model] = DateTime.now();
+
+            if (extensionWebSockets[model] == null) {
+              if (extensionWebSockets['_manager'] == null) {
+                completer.complete(Response(503,
+                  body: jsonEncode({"type": "error", "error": {"type": "overloaded_error", "message": "Chrome 插件未连接 ($model)"}}),
+                  headers: {'content-type': 'application/json'},
+                ));
+                return;
+              }
+              extensionWebSockets['_manager']!.sink.add(jsonEncode({"action": "open_tab", "url": targetUrl}));
+              int attempts = 0;
+              while (attempts < 60) {
+                await Future.delayed(Duration(milliseconds: 500));
+                if (extensionWebSockets[model] != null && currentExtensionUrls[model] != null) break;
+                attempts++;
+              }
+              if (extensionWebSockets[model] == null) {
+                completer.complete(Response(503,
+                  body: jsonEncode({"type": "error", "error": {"type": "overloaded_error", "message": "标签页唤起超时 ($model)"}}),
+                  headers: {'content-type': 'application/json'},
+                ));
+                return;
+              }
+              await Future.delayed(Duration(seconds: 2));
+            }
+
+            final reqCompleter = Completer<Response>();
+            pendingRequests[model] = reqCompleter;
+            pendingSessionKeys[model] = sessionKey;
+
+            String currentUrl = currentExtensionUrls[model] ?? '';
+            if (currentUrl != targetUrl) {
+              isNavigating[model] = true;
+              extensionWebSockets[model]!.sink.add(jsonEncode({"action": "navigate", "url": targetUrl}));
+              int attempts = 0;
+              while (attempts < 10) {
+                await Future.delayed(Duration(milliseconds: 200));
+                if (extensionWebSockets[model] == null) break;
+                attempts++;
+              }
+              attempts = 0;
+              while (attempts < 50) {
+                await Future.delayed(Duration(milliseconds: 200));
+                if (extensionWebSockets[model] != null && currentExtensionUrls[model] != null) break;
+                attempts++;
+              }
+              isNavigating[model] = false;
+              if (attempts >= 50) throw Exception("Timeout waiting for navigation");
+              await Future.delayed(Duration(milliseconds: 1500));
+            }
+
+            if (extensionWebSockets[model] == null) {
+              throw Exception("Extension disconnected after navigation");
+            }
+
+            extensionWebSockets[model]!.sink.add(jsonEncode({"action": "prompt", "text": prompt, "sse": isStream}));
+
+            final innerResponse = await reqCompleter.future;
+            final bodyStr = await innerResponse.readAsString();
+            final bodyJson = jsonDecode(bodyStr) as Map<String, dynamic>;
+            final responseText = bodyJson['response']?.toString() ?? bodyJson['answer']?.toString() ?? '';
+
+            // 格式化为 Anthropic 格式
+            final anthropicResponse = {
+              "id": msgId,
+              "type": "message",
+              "role": "assistant",
+              "model": clientModel,
+              "content": [{"type": "text", "text": responseText}],
+              "stop_reason": "end_turn",
+              "stop_sequence": null,
+              "usage": {"input_tokens": 0, "output_tokens": 0},
+            };
+            completer.complete(Response.ok(
+              jsonEncode(anthropicResponse),
+              headers: {'content-type': 'application/json'},
+            ));
+          } catch (e) {
+            if (!completer.isCompleted) {
+              completer.complete(Response(500,
+                body: jsonEncode({"type": "error", "error": {"type": "api_error", "message": e.toString()}}),
+                headers: {'content-type': 'application/json'},
+              ));
+            }
+            if (sseControllers.containsKey(model) && !sseControllers[model]!.isClosed) {
+              sseControllers[model]!.close();
+              sseControllers.remove(model);
+            }
+            pendingRequests.remove(model);
+          } finally {
+            await Future.delayed(Duration(seconds: 6));
+          }
+        }
+
+        if (!isStream) {
+          globalQueue = globalQueue.catchError((_) {}).then((_) => process());
+          return completer.future;
+        }
+
+        // SSE 流式响应（Anthropic 格式）
+        return request.hijack((channel) async {
+          final sseController = StreamController<String>();
+          sseControllers[model] = sseController;
+
+          globalQueue = globalQueue.catchError((_) {}).then((_) => process());
+
+          final sink = channel.sink;
+          sink.add(utf8.encode(
+            'HTTP/1.1 200 OK\r\n'
+            'Content-Type: text/event-stream; charset=utf-8\r\n'
+            'Cache-Control: no-cache\r\n'
+            'Connection: keep-alive\r\n'
+            'X-Accel-Buffering: no\r\n'
+            'Access-Control-Allow-Origin: *\r\n'
+            '\r\n',
+          ));
+
+          // 发送 message_start
+          final msgStart = jsonEncode({
+            "type": "message_start",
+            "message": {"id": msgId, "type": "message", "role": "assistant", "model": clientModel,
+                        "content": [], "stop_reason": null, "usage": {"input_tokens": 0, "output_tokens": 0}},
+          });
+          sink.add(utf8.encode('event: message_start\ndata: $msgStart\n\n'));
+
+          // 发送 content_block_start
+          final blockStart = jsonEncode({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}});
+          sink.add(utf8.encode('event: content_block_start\ndata: $blockStart\n\n'));
+
+          // 发送 ping
+          sink.add(utf8.encode('event: ping\ndata: {"type":"ping"}\n\n'));
+
+          StringBuffer fullText = StringBuffer();
+
+          try {
+            await for (final sseEvent in sseController.stream) {
+              final raw = sseEvent.trim();
+              if (!raw.startsWith('data: ')) continue;
+              final jsonStr = raw.substring(6);
+              try {
+                final eventData = jsonDecode(jsonStr) as Map<String, dynamic>;
+                if (eventData.containsKey('delta')) {
+                  final deltaText = eventData['delta']?.toString() ?? '';
+                  fullText.write(deltaText);
+                  final delta = jsonEncode({
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": deltaText},
+                  });
+                  sink.add(utf8.encode('event: content_block_delta\ndata: $delta\n\n'));
+                } else if (eventData['done'] == true) {
+                  // content_block_stop
+                  sink.add(utf8.encode('event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n'));
+                  // message_delta
+                  final msgDelta = jsonEncode({
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "end_turn", "stop_sequence": null},
+                    "usage": {"output_tokens": fullText.length},
+                  });
+                  sink.add(utf8.encode('event: message_delta\ndata: $msgDelta\n\n'));
+                  // message_stop
+                  sink.add(utf8.encode('event: message_stop\ndata: {"type":"message_stop"}\n\n'));
+                } else if (eventData.containsKey('error')) {
+                  sink.add(utf8.encode('event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n'));
+                  sink.add(utf8.encode('event: message_stop\ndata: {"type":"message_stop"}\n\n'));
+                }
+              } catch (_) {}
+            }
+          } catch (_) {}
+
+          await sink.close();
+        });
       });
 
       final handler = const Pipeline()
