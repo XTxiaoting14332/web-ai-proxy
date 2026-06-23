@@ -44,6 +44,7 @@ void initWebSocket() {
           final msgEvent = event as web.MessageEvent;
           final payload = msgEvent.data.toString();
           String prompt = payload;
+          bool sseMode = false;
           try {
             final data = jsonDecode(payload);
             if (data['action'] == 'navigate') {
@@ -52,6 +53,7 @@ void initWebSocket() {
             }
             if (data['action'] == 'prompt') {
                prompt = data['text'];
+               sseMode = data['sse'] == true;
             }
           } catch (_) {}
 
@@ -71,17 +73,21 @@ void initWebSocket() {
           await completer.future;
           await Future.delayed(Duration(milliseconds: 300));
 
-          reqAI(prompt).then((answer) {
-            String ans = answer ?? "Error";
-            try {
-               final data = jsonDecode(ans);
-               data['url'] = web.window.location.href;
-               data['action'] = 'success';
-               ws?.send(jsonEncode(data).toJS);
-            } catch (_) {
-               ws?.send(jsonEncode({"action": "success", "url": web.window.location.href, "response": ans}).toJS);
-            }
-          });
+          if (sseMode) {
+            reqAIStream(prompt);
+          } else {
+            reqAI(prompt).then((answer) {
+              String ans = answer ?? "Error";
+              try {
+                 final data = jsonDecode(ans);
+                 data['url'] = web.window.location.href;
+                 data['action'] = 'success';
+                 ws?.send(jsonEncode(data).toJS);
+              } catch (_) {
+                 ws?.send(jsonEncode({"action": "success", "url": web.window.location.href, "response": ans}).toJS);
+              }
+            });
+          }
         }
         handleMessage();
       }).toJS,
@@ -229,5 +235,81 @@ Future<String?> reqAI(String prompt) async {
   } catch (e, stackTrace) {
     print("Error inside reqAI: $e");
     return "Error caught in script: $e";
+  }
+}
+
+Future<void> reqAIStream(String prompt) async {
+  try {
+    final inputElement = web.document.querySelector('div[data-placeholder*="Gemini"]');
+    if (inputElement == null) {
+      ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Input element not found!"}).toJS);
+      return;
+    }
+    final inputArea = inputElement as web.HTMLElement;
+    await _humanDelay(300, 800);
+    inputArea.focus();
+
+    final completer = Completer<bool>();
+    final requestPayload = JSObject()
+      ..setProperty('action'.toJS, 'simulateInputAndClick'.toJS)
+      ..setProperty('text'.toJS, prompt.toJS)
+      ..setProperty('buttonCoords'.toJS, JSObject()
+        ..setProperty('x'.toJS, 0.toJS)
+        ..setProperty('y'.toJS, 0.toJS));
+
+    final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
+    final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
+    runtime.callMethod('sendMessage'.toJS, requestPayload, ((JSObject _) {
+      completer.complete(true);
+    }).toJS);
+
+    await completer.future;
+    await Future.delayed(Duration(seconds: 1));
+
+    String lastSentText = "";
+    int stableCount = 0;
+    const int maxAttempts = 300;
+
+    for (int i = 0; i < maxAttempts; i++) {
+      final responseList = web.document.querySelectorAll('model-response');
+      String currentText = "";
+      if (responseList.length > 0) {
+        final el = responseList.item(responseList.length - 1) as web.HTMLElement;
+        currentText = el.innerText.trim();
+      }
+
+      if (currentText.isNotEmpty) {
+        if (currentText != lastSentText) {
+          String delta = '';
+          if (currentText.startsWith(lastSentText)) {
+            delta = currentText.substring(lastSentText.length);
+          } else {
+            delta = currentText;
+          }
+          if (delta.isNotEmpty) {
+            ws?.send(jsonEncode({"action": "chunk", "delta": delta}).toJS);
+          }
+          lastSentText = currentText;
+          stableCount = 0;
+        } else {
+          stableCount++;
+          if (stableCount >= 3) break;
+        }
+      }
+      await Future.delayed(Duration(milliseconds: 500));
+    }
+
+    ws?.send(jsonEncode({
+      "action": "done",
+      "url": web.window.location.href,
+      "response": lastSentText,
+    }).toJS);
+
+  } catch (e) {
+    ws?.send(jsonEncode({
+      "action": "done",
+      "url": web.window.location.href,
+      "response": "Error: $e",
+    }).toJS);
   }
 }

@@ -47,6 +47,7 @@ void initWebSocket() {
           final payload = msgEvent.data.toString();
           print("[DOUBAO-DEBUG] Received WS message: $payload");
           String prompt = payload;
+          bool sseMode = false;
           try {
             final data = jsonDecode(payload);
             if (data['action'] == 'navigate') {
@@ -56,6 +57,7 @@ void initWebSocket() {
             }
             if (data['action'] == 'prompt') {
               prompt = data['text'];
+              sseMode = data['sse'] == true;
               print("[DOUBAO-DEBUG] Prompt: $prompt");
             }
           } catch (_) {}
@@ -75,27 +77,31 @@ void initWebSocket() {
           await completer.future;
           await Future.delayed(Duration(milliseconds: 300));
 
-          reqAI(prompt).then((answer) {
-            String ans = answer ?? "Error";
-            print(
-              "[DOUBAO-DEBUG] reqAI returned: ${ans.length > 100 ? ans.substring(0, 100) + '...' : ans}",
-            );
-            try {
-              final data = jsonDecode(ans);
-              data['url'] = web.window.location.href;
-              data['action'] = 'success';
-              ws?.send(jsonEncode(data).toJS);
-            } catch (_) {
-              ws?.send(
-                jsonEncode({
-                  "action": "success",
-                  "url": web.window.location.href,
-                  "response": ans,
-                }).toJS,
+          if (sseMode) {
+            reqAIStream(prompt);
+          } else {
+            reqAI(prompt).then((answer) {
+              String ans = answer ?? "Error";
+              print(
+                "[DOUBAO-DEBUG] reqAI returned: ${ans.length > 100 ? ans.substring(0, 100) + '...' : ans}",
               );
-            }
-            print("[DOUBAO-DEBUG] WS send completed");
-          });
+              try {
+                final data = jsonDecode(ans);
+                data['url'] = web.window.location.href;
+                data['action'] = 'success';
+                ws?.send(jsonEncode(data).toJS);
+              } catch (_) {
+                ws?.send(
+                  jsonEncode({
+                    "action": "success",
+                    "url": web.window.location.href,
+                    "response": ans,
+                  }).toJS,
+                );
+              }
+              print("[DOUBAO-DEBUG] WS send completed");
+            });
+          }
         }
 
         handleMessage();
@@ -277,5 +283,106 @@ Future<String?> reqAI(String prompt) async {
   } catch (e, stackTrace) {
     print("[DOUBAO-DEBUG] EXCEPTION: $e");
     return "Error caught in script: $e";
+  }
+}
+
+Future<void> reqAIStream(String prompt) async {
+  try {
+    web.Element? inputElement;
+    for (int attempt = 0; attempt < 20; attempt++) {
+      inputElement = web.document.querySelector('.semi-input-textarea');
+      if (inputElement != null) {
+        break;
+      }
+      await Future.delayed(Duration(milliseconds: 500));
+    }
+    if (inputElement == null) {
+      ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Input element not found."}).toJS);
+      return;
+    }
+
+    final inputArea = inputElement as web.HTMLElement;
+    await _humanDelay(300, 800);
+    inputArea.focus();
+
+    final completer = Completer<bool>();
+    final requestPayload = JSObject()
+      ..setProperty('action'.toJS, 'simulateInputAndClick'.toJS)
+      ..setProperty('text'.toJS, prompt.toJS)
+      ..setProperty(
+        'buttonCoords'.toJS,
+        JSObject()
+          ..setProperty('x'.toJS, 0.toJS)
+          ..setProperty('y'.toJS, 0.toJS),
+      );
+
+    final chrome = globalContext.getProperty('chrome'.toJS) as JSObject;
+    final runtime = chrome.getProperty('runtime'.toJS) as JSObject;
+
+    final callback = ((JSObject response) {
+      completer.complete(true);
+    }).toJS;
+
+    runtime.callMethod('sendMessage'.toJS, requestPayload, callback);
+    await completer.future;
+
+    await Future.delayed(Duration(seconds: 2));
+
+    String lastSentText = "";
+    int stableCount = 0;
+    int maxAttempts = 300;
+
+    for (int i = 0; i < maxAttempts; i++) {
+      final String bodyText = web.document.body?.innerText ?? "";
+      final bool isThinking =
+          bodyText.contains("正在思考") ||
+          bodyText.contains("正在搜索") ||
+          bodyText.contains("跳过");
+
+      if (isThinking) {
+        await Future.delayed(Duration(milliseconds: 500));
+        continue;
+      }
+
+      final responseList = web.document.querySelectorAll('.flow-markdown-body');
+      String currentText = "";
+      if (responseList.length > 0) {
+        final el = responseList.item(responseList.length - 1) as web.HTMLElement;
+        currentText = el.innerText.trim();
+      }
+
+      if (currentText.isNotEmpty) {
+        if (currentText != lastSentText) {
+          String delta = '';
+          if (currentText.startsWith(lastSentText)) {
+            delta = currentText.substring(lastSentText.length);
+          } else {
+            delta = currentText;
+          }
+          if (delta.isNotEmpty) {
+            ws?.send(jsonEncode({"action": "chunk", "delta": delta}).toJS);
+          }
+          lastSentText = currentText;
+          stableCount = 0;
+        } else {
+          stableCount++;
+          if (stableCount >= 5) break;
+        }
+      }
+      await Future.delayed(Duration(milliseconds: 500));
+    }
+
+    ws?.send(jsonEncode({
+      "action": "done",
+      "url": web.window.location.href,
+      "response": lastSentText,
+    }).toJS);
+
+  } catch (e) {
+    ws?.send(jsonEncode({
+      "action": "done",
+      "url": web.window.location.href,
+      "response": "Error: $e",
+    }).toJS);
   }
 }

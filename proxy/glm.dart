@@ -45,6 +45,7 @@ void initWebSocket() {
           final msgEvent = event as web.MessageEvent;
           final payload = msgEvent.data.toString();
           String prompt = payload;
+          bool sseMode = false;
           try {
             final data = jsonDecode(payload);
             if (data['action'] == 'navigate') {
@@ -53,6 +54,7 @@ void initWebSocket() {
             }
             if (data['action'] == 'prompt') {
               prompt = data['text'];
+              sseMode = data['sse'] == true;
             }
           } catch (_) {}
 
@@ -71,23 +73,27 @@ void initWebSocket() {
           await completer.future;
           await Future.delayed(Duration(milliseconds: 300));
 
-          reqAI(prompt).then((answer) {
-            String ans = answer ?? "Error";
-            try {
-              final data = jsonDecode(ans);
-              data['url'] = web.window.location.href;
-              data['action'] = 'success';
-              ws?.send(jsonEncode(data).toJS);
-            } catch (_) {
-              ws?.send(
-                jsonEncode({
-                  "action": "success",
-                  "url": web.window.location.href,
-                  "response": ans,
-                }).toJS,
-              );
-            }
-          });
+          if (sseMode) {
+            reqAIStream(prompt);
+          } else {
+            reqAI(prompt).then((answer) {
+              String ans = answer ?? "Error";
+              try {
+                final data = jsonDecode(ans);
+                data['url'] = web.window.location.href;
+                data['action'] = 'success';
+                ws?.send(jsonEncode(data).toJS);
+              } catch (_) {
+                ws?.send(
+                  jsonEncode({
+                    "action": "success",
+                    "url": web.window.location.href,
+                    "response": ans,
+                  }).toJS,
+                );
+              }
+            });
+          }
         }
 
         handleMessage();
@@ -282,5 +288,144 @@ Future<String?> reqAI(String prompt) async {
   } catch (e, stackTrace) {
     print("Error inside reqAI: $e");
     return jsonEncode({"error": e.toString()});
+  }
+}
+
+Future<void> reqAIStream(String prompt) async {
+  try {
+    final inputElement = web.document.querySelector('#chat-input');
+    if (inputElement == null) {
+      ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Input element not found"}).toJS);
+      return;
+    }
+
+    final inputArea = inputElement as web.HTMLTextAreaElement;
+    await _humanDelay(300, 800);
+    inputArea.focus();
+
+    await _humanDelay(400, 1200);
+    inputArea.value = prompt;
+
+    final eventInit = web.EventInit()
+      ..bubbles = true
+      ..cancelable = true;
+    inputArea.dispatchEvent(web.Event('input', eventInit));
+    await _humanDelay(600, 1500);
+
+    final sendButtonElement =
+        web.document.querySelector('send-message-button') ??
+        web.document.querySelector('.send-btn') ??
+        web.document.querySelector('button[class*="send"]') ??
+        web.document.querySelector('div[class*="send"]');
+
+    if (sendButtonElement == null) {
+      ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Send button element not found"}).toJS);
+      return;
+    }
+
+    final initialAssistants = web.document.querySelectorAll('.chat-assistant');
+    final initialCount = initialAssistants.length;
+
+    final sendButton = sendButtonElement as web.HTMLElement;
+    sendButton.click();
+
+    await Future.delayed(Duration(seconds: 1));
+
+    String lastSentText = "";
+    int stableCount = 0;
+    int maxAttempts = 360;
+
+    for (int i = 0; i < maxAttempts; i++) {
+      final String bodyText = web.document.body?.innerText ?? "";
+
+      final bool isThinking =
+          bodyText.contains("正在思考") || bodyText.contains("跳过");
+
+      if (isThinking) {
+        await Future.delayed(Duration(milliseconds: 500));
+        continue;
+      }
+
+      final assistantMessages = web.document.querySelectorAll('.chat-assistant');
+      String currentText = "";
+      if (assistantMessages.length > initialCount) {
+        final lastAssistant =
+            assistantMessages.item(assistantMessages.length - 1)
+                as web.HTMLElement;
+        final markdownProse = lastAssistant.querySelector('.markdown-prose') as web.HTMLElement?;
+        
+        if (markdownProse != null) {
+          final children = markdownProse.children;
+          final List<String> textParts = [];
+
+          for (int j = 0; j < children.length; j++) {
+            final child = children.item(j) as web.HTMLElement;
+
+            if (child.classList.contains('thinking-chain-container') ||
+                child.querySelector('.thinking-chain-container') != null ||
+                child.classList.contains('thinking-block') ||
+                child.querySelector('.thinking-block') != null) {
+              continue;
+            }
+
+            final text = child.innerText.trim();
+            if (text.isNotEmpty) {
+              textParts.add(text);
+            }
+          }
+          currentText = textParts.join('\n\n');
+          if (currentText.isEmpty) {
+            currentText = markdownProse.innerText.trim();
+          }
+        }
+      }
+
+      if (currentText.isNotEmpty) {
+        if (currentText != lastSentText) {
+          String delta = '';
+          if (currentText.startsWith(lastSentText)) {
+            delta = currentText.substring(lastSentText.length);
+          } else {
+            delta = currentText;
+          }
+          if (delta.isNotEmpty) {
+            ws?.send(jsonEncode({"action": "chunk", "delta": delta}).toJS);
+          }
+          lastSentText = currentText;
+          stableCount = 0;
+        } else {
+          stableCount++;
+          if (stableCount >= 4) break;
+        }
+      } else {
+        stableCount = 0;
+      }
+      await Future.delayed(Duration(milliseconds: 500));
+    }
+
+    String thinkingText = "";
+    final assistantMessages = web.document.querySelectorAll('.chat-assistant');
+    if (assistantMessages.length > initialCount) {
+      final lastAssistant = assistantMessages.item(assistantMessages.length - 1) as web.HTMLElement;
+      final thinkingBlock = lastAssistant.querySelector('.thinking-block blockquote') ??
+          lastAssistant.querySelector('.thinking-chain-container blockquote');
+      if (thinkingBlock != null) {
+        thinkingText = (thinkingBlock as web.HTMLElement).innerText.trim();
+      }
+    }
+
+    final doneResponse = jsonEncode({"thinking": thinkingText, "answer": lastSentText});
+    ws?.send(jsonEncode({
+      "action": "done",
+      "url": web.window.location.href,
+      "response": doneResponse,
+    }).toJS);
+
+  } catch (e) {
+    ws?.send(jsonEncode({
+      "action": "done",
+      "url": web.window.location.href,
+      "response": "Error: $e",
+    }).toJS);
   }
 }

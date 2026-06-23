@@ -14,6 +14,9 @@ Map<String, WebSocketChannel> extensionWebSockets = {};
 Future<void> globalQueue = Future.value();
 Map<String, bool> isNavigating = {};
 
+// SSE streaming: key=model, value=StreamController for SSE chunks
+Map<String, StreamController<String>> sseControllers = {};
+
 Map<String, String> sessionUrls = {};
 Map<String, String> currentExtensionUrls = {};
 Map<String, String> pendingSessionKeys = {};
@@ -157,6 +160,41 @@ void main() {
                     return;
                   }
 
+                  // 新增：处理 SSE 增量 chunk
+                  if (decoded['action'] == 'chunk') {
+                    final delta = decoded['delta']?.toString() ?? '';
+                    if (sseControllers.containsKey(model) &&
+                        !sseControllers[model]!.isClosed) {
+                      final sseData = jsonEncode({"delta": delta});
+                      sseControllers[model]!.add('data: $sseData\n\n');
+                    }
+                    return;
+                  }
+
+                  // 新增：处理 SSE 结束信号
+                  if (decoded['action'] == 'done') {
+                    final finalResponse = decoded['response']?.toString() ?? '';
+                    final newUrl = decoded['url']?.toString();
+
+                    if (newUrl != null && pendingSessionKeys[model] != null) {
+                      sessionUrls[pendingSessionKeys[model]!] = newUrl;
+                      currentExtensionUrls[model] = newUrl;
+                      saveSessions();
+                    }
+
+                    if (sseControllers.containsKey(model) &&
+                        !sseControllers[model]!.isClosed) {
+                      sseControllers[model]!.add(
+                        'data: ${jsonEncode({"done": true, "response": finalResponse})}\n\n',
+                      );
+                      sseControllers[model]!.close();
+                      sseControllers.remove(model);
+                    }
+
+                    pendingRequests.remove(model);
+                    return;
+                  }
+
                   if (decoded['action'] == 'success' ||
                       decoded.containsKey("answer")) {
                     if (pendingRequests[model] != null &&
@@ -278,6 +316,7 @@ void main() {
         final model = data['model'] ?? 'gemini';
         final sessionId = data['session_id'] ?? 'default';
         final sessionKey = "${model}_$sessionId";
+        final bool isSse = data['sse'] == true;
 
         if (extensionWebSockets[model] == null &&
             extensionWebSockets['_manager'] == null) {
@@ -411,7 +450,7 @@ void main() {
             }
 
             extensionWebSockets[model]!.sink.add(
-              jsonEncode({"action": "prompt", "text": prompt}),
+              jsonEncode({"action": "prompt", "text": prompt, "sse": isSse}),
             );
 
             final response = await reqCompleter.future;
@@ -425,6 +464,15 @@ void main() {
                 ),
               );
             }
+            // SSE 模式下关闭 controller 并发送错误事件
+            if (sseControllers.containsKey(model) &&
+                !sseControllers[model]!.isClosed) {
+              sseControllers[model]!.add(
+                'data: ${jsonEncode({"error": e.toString()})}\n\n',
+              );
+              sseControllers[model]!.close();
+              sseControllers.remove(model);
+            }
             pendingRequests.remove(model);
           } finally {
             Logger.info('Model $model cooling down for 6 seconds...');
@@ -433,9 +481,38 @@ void main() {
           }
         }
 
-        globalQueue = globalQueue.catchError((_) {}).then((_) => process());
+        if (!isSse) {
+          // 非 SSE 模式：原有逻辑
+          globalQueue = globalQueue.catchError((_) {}).then((_) => process());
+          return completer.future;
+        } else {
+          return request.hijack((channel) async {
+            final sseController = StreamController<String>();
+            sseControllers[model] = sseController;
 
-        return completer.future;
+            globalQueue = globalQueue.catchError((_) {}).then((_) => process());
+
+            final sink = channel.sink;
+            // 手动写 HTTP 响应头，写入后立即刷到 TCP socket（不经过 HttpResponse 缓冲）
+            sink.add(utf8.encode(
+              'HTTP/1.1 200 OK\r\n'
+              'Content-Type: text/event-stream; charset=utf-8\r\n'
+              'Cache-Control: no-cache\r\n'
+              'Connection: keep-alive\r\n'
+              'X-Accel-Buffering: no\r\n'
+              'Access-Control-Allow-Origin: *\r\n'
+              '\r\n',
+            ));
+
+            try {
+              await for (final sseEvent in sseController.stream) {
+                sink.add(utf8.encode(sseEvent));
+              }
+            } catch (_) {}
+
+            await sink.close();
+          });
+        }
       });
 
       final handler = const Pipeline()
