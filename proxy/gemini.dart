@@ -162,9 +162,28 @@ Future<String?> reqAI(String prompt) async {
     print("Monitoring generation status...");
     String lastText = "";
     int stableCount = 0;
-    int maxAttempts = 300;
+    int maxAttempts = 180;
 
     for (int i = 0; i < maxAttempts; i++) {
+      // 新增：弹窗检测
+      final dialogs = web.document.querySelectorAll('dialog[open], [role="dialog"], .modal, .overlay');
+      if (dialogs.length > 0) {
+        bool closed = false;
+        final closeBtns = web.document.querySelectorAll('button');
+        for (int b = 0; b < closeBtns.length; b++) {
+          final btn = closeBtns.item(b) as web.HTMLElement;
+          final btnText = btn.innerText.toLowerCase();
+          if (btnText.contains('close') || btnText.contains('关闭') || btnText.contains('确定') || btnText.contains('ok')) {
+            btn.click();
+            closed = true;
+            break;
+          }
+        }
+        if (!closed) {
+          ws?.send(jsonEncode({"action": "error", "message": "网页出现弹窗拦截且无法自动关闭"}).toJS);
+          throw Exception("Popup blocked");
+        }
+      }
 
       final responseList = web.document.querySelectorAll('model-response');
       if (responseList.length > 0) {
@@ -268,9 +287,28 @@ Future<void> reqAIStream(String prompt) async {
 
     String lastSentText = "";
     int stableCount = 0;
-    const int maxAttempts = 300;
+    const int maxAttempts = 180;
 
     for (int i = 0; i < maxAttempts; i++) {
+      // 新增：弹窗检测
+      final dialogs = web.document.querySelectorAll('dialog[open], [role="dialog"], .modal, .overlay');
+      if (dialogs.length > 0) {
+        bool closed = false;
+        final closeBtns = web.document.querySelectorAll('button');
+        for (int b = 0; b < closeBtns.length; b++) {
+          final btn = closeBtns.item(b) as web.HTMLElement;
+          final btnText = btn.innerText.toLowerCase();
+          if (btnText.contains('close') || btnText.contains('关闭') || btnText.contains('确定') || btnText.contains('ok')) {
+            btn.click();
+            closed = true;
+            break;
+          }
+        }
+        if (!closed) {
+          ws?.send(jsonEncode({"action": "error", "message": "网页出现弹窗拦截且无法自动关闭"}).toJS);
+          throw Exception("Popup blocked");
+        }
+      }
       final responseList = web.document.querySelectorAll('model-response');
       String currentText = "";
       if (responseList.length > 0) {

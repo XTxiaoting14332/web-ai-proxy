@@ -16,6 +16,7 @@ Map<String, bool> isNavigating = {};
 
 // SSE streaming: key=model, value=StreamController for SSE chunks
 Map<String, StreamController<String>> sseControllers = {};
+Map<String, String> pendingSSERequestIds = {}; // model -> requestId
 
 Map<String, String> sessionUrls = {};
 Map<String, String> currentExtensionUrls = {};
@@ -231,10 +232,11 @@ void main() {
                   // 新增：处理 SSE 增量 chunk
                   if (decoded['action'] == 'chunk') {
                     final delta = decoded['delta']?.toString() ?? '';
-                    if (sseControllers.containsKey(model) &&
-                        !sseControllers[model]!.isClosed) {
+                    final reqId = pendingSSERequestIds[model];
+                    if (reqId != null && sseControllers.containsKey(reqId) &&
+                        !sseControllers[reqId]!.isClosed) {
                       final sseData = jsonEncode({"delta": delta});
-                      sseControllers[model]!.add('data: $sseData\n\n');
+                      sseControllers[reqId]!.add('data: $sseData\n\n');
                     }
                     return;
                   }
@@ -250,16 +252,44 @@ void main() {
                       saveSessions();
                     }
 
-                    if (sseControllers.containsKey(model) &&
-                        !sseControllers[model]!.isClosed) {
-                      sseControllers[model]!.add(
+                    final reqId = pendingSSERequestIds[model];
+                    if (reqId != null && sseControllers.containsKey(reqId) &&
+                        !sseControllers[reqId]!.isClosed) {
+                      sseControllers[reqId]!.add(
                         'data: ${jsonEncode({"done": true, "response": finalResponse})}\n\n',
                       );
-                      sseControllers[model]!.close();
-                      sseControllers.remove(model);
+                      sseControllers[reqId]!.close();
+                      sseControllers.remove(reqId);
                     }
-
+                    pendingSSERequestIds.remove(model);
                     pendingRequests.remove(model);
+                    return;
+                  }
+
+                  // 新增：插件上报错误（如弹窗检测、网络异常等）
+                  if (decoded['action'] == 'error') {
+                    final errorMsg = decoded['message']?.toString() ?? '插件上报未知错误';
+                    Logger.warn('Plugin reported error for model $model: $errorMsg');
+
+                    final reqId = pendingSSERequestIds[model];
+                    if (reqId != null && sseControllers.containsKey(reqId) && !sseControllers[reqId]!.isClosed) {
+                      sseControllers[reqId]!.add(
+                        'data: ${jsonEncode({"error": errorMsg})}\n\n',
+                      );
+                      sseControllers[reqId]!.close();
+                      sseControllers.remove(reqId);
+                    }
+                    pendingSSERequestIds.remove(model);
+
+                    if (pendingRequests[model] != null && !pendingRequests[model]!.isCompleted) {
+                      pendingRequests[model]!.complete(
+                        Response.internalServerError(
+                          body: jsonEncode({"error": errorMsg}),
+                          headers: {'content-type': 'application/json'},
+                        ),
+                      );
+                      pendingRequests.remove(model);
+                    }
                     return;
                   }
 
@@ -417,6 +447,7 @@ void main() {
         final prompt = data['prompt'] ?? '';
         Logger.info('Queuing prompt for $model (session: $sessionId)...');
 
+        final requestId = Uuid().v4();
         final completer = Completer<Response>();
 
         Future<void> process() async {
@@ -535,11 +566,31 @@ void main() {
               );
             }
 
+            if (isSse) {
+              pendingSSERequestIds[model] = requestId;
+            }
             extensionWebSockets[model]!.sink.add(
               jsonEncode({"action": "prompt", "text": prompt, "sse": isSse}),
             );
 
-            final response = await reqCompleter.future;
+            final response = await reqCompleter.future.timeout(
+              const Duration(seconds: 120),
+              onTimeout: () {
+                Logger.warn('Request timed out for model $model after 120s (popup/dialog?)');
+                pendingRequests.remove(model);
+                if (sseControllers.containsKey(requestId) && !sseControllers[requestId]!.isClosed) {
+                  sseControllers[requestId]!.add(
+                    'data: ${jsonEncode({"error": "请求超时（120s），网页可能出现弹窗或异常"})}\n\n',
+                  );
+                  sseControllers[requestId]!.close();
+                  sseControllers.remove(requestId);
+                }
+                return Response.internalServerError(
+                  body: jsonEncode({"error": "请求超时（120s），网页可能出现弹窗或异常"}),
+                  headers: {'content-type': 'application/json'},
+                );
+              },
+            );
             completer.complete(response);
           } catch (e) {
             if (!completer.isCompleted) {
@@ -551,13 +602,13 @@ void main() {
               );
             }
             // SSE 模式下关闭 controller 并发送错误事件
-            if (sseControllers.containsKey(model) &&
-                !sseControllers[model]!.isClosed) {
-              sseControllers[model]!.add(
+            if (sseControllers.containsKey(requestId) &&
+                !sseControllers[requestId]!.isClosed) {
+              sseControllers[requestId]!.add(
                 'data: ${jsonEncode({"error": e.toString()})}\n\n',
               );
-              sseControllers[model]!.close();
-              sseControllers.remove(model);
+              sseControllers[requestId]!.close();
+              sseControllers.remove(requestId);
             }
             pendingRequests.remove(model);
           } finally {
@@ -654,6 +705,7 @@ void main() {
         final createdTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
         // 5. 复用内部 process 逻辑（与 /api/chat 完全相同的结构）
+        final requestId = Uuid().v4();
         final completer = Completer<Response>();
 
         Future<void> process() async {
@@ -726,9 +778,25 @@ void main() {
               throw Exception("Extension disconnected after navigation");
             }
 
+            if (isStream) {
+              pendingSSERequestIds[model] = requestId;
+            }
             extensionWebSockets[model]!.sink.add(jsonEncode({"action": "prompt", "text": prompt, "sse": isStream}));
 
-            final innerResponse = await reqCompleter.future;
+            if (isStream) {
+              return;
+            }
+            final innerResponse = await reqCompleter.future.timeout(
+              const Duration(seconds: 120),
+              onTimeout: () {
+                Logger.warn('OpenAI compat request timed out for model $model after 120s');
+                pendingRequests.remove(model);
+                return Response.internalServerError(
+                  body: jsonEncode({"error": {"message": "请求超时（120s）", "type": "server_error"}}),
+                  headers: {'content-type': 'application/json'},
+                );
+              },
+            );
             // innerResponse 是原始 /api/chat 格式的 Response，我们不直接用 body
             // 此处我们需要从 pendingRequests 完成后拿到响应文本。
             // 但实际上 reqCompleter 完成时返回的是 Response 对象，我们解析其 body。
@@ -762,9 +830,9 @@ void main() {
                 headers: {'content-type': 'application/json'},
               ));
             }
-            if (sseControllers.containsKey(model) && !sseControllers[model]!.isClosed) {
-              sseControllers[model]!.close();
-              sseControllers.remove(model);
+            if (sseControllers.containsKey(requestId) && !sseControllers[requestId]!.isClosed) {
+              sseControllers[requestId]!.close();
+              sseControllers.remove(requestId);
             }
             pendingRequests.remove(model);
           } finally {
@@ -780,7 +848,7 @@ void main() {
         // SSE 流式响应
         return request.hijack((channel) async {
           final sseController = StreamController<String>();
-          sseControllers[model] = sseController;
+          sseControllers[requestId] = sseController;
 
           globalQueue = globalQueue.catchError((_) {}).then((_) => process());
 
@@ -944,6 +1012,7 @@ void main() {
         final msgId = 'msg_${Uuid().v4().substring(0, 8)}';
         final createdTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
+        final requestId = Uuid().v4();
         final completer = Completer<Response>();
 
         Future<void> process() async {
@@ -1016,9 +1085,25 @@ void main() {
               throw Exception("Extension disconnected after navigation");
             }
 
+            if (isStream) {
+              pendingSSERequestIds[model] = requestId;
+            }
             extensionWebSockets[model]!.sink.add(jsonEncode({"action": "prompt", "text": prompt, "sse": isStream}));
 
-            final innerResponse = await reqCompleter.future;
+            if (isStream) {
+              return;
+            }
+            final innerResponse = await reqCompleter.future.timeout(
+              const Duration(seconds: 120),
+              onTimeout: () {
+                Logger.warn('Anthropic compat request timed out for model $model after 120s');
+                pendingRequests.remove(model);
+                return Response.internalServerError(
+                  body: jsonEncode({"type": "error", "error": {"type": "overloaded_error", "message": "请求超时（120s）"}}),
+                  headers: {'content-type': 'application/json'},
+                );
+              },
+            );
             final bodyStr = await innerResponse.readAsString();
             final bodyJson = jsonDecode(bodyStr) as Map<String, dynamic>;
             final responseText = bodyJson['response']?.toString() ?? bodyJson['answer']?.toString() ?? '';
@@ -1045,9 +1130,9 @@ void main() {
                 headers: {'content-type': 'application/json'},
               ));
             }
-            if (sseControllers.containsKey(model) && !sseControllers[model]!.isClosed) {
-              sseControllers[model]!.close();
-              sseControllers.remove(model);
+            if (sseControllers.containsKey(requestId) && !sseControllers[requestId]!.isClosed) {
+              sseControllers[requestId]!.close();
+              sseControllers.remove(requestId);
             }
             pendingRequests.remove(model);
           } finally {
@@ -1063,7 +1148,7 @@ void main() {
         // SSE 流式响应（Anthropic 格式）
         return request.hijack((channel) async {
           final sseController = StreamController<String>();
-          sseControllers[model] = sseController;
+          sseControllers[requestId] = sseController;
 
           globalQueue = globalQueue.catchError((_) {}).then((_) => process());
 
