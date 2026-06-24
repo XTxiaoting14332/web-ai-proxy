@@ -72,6 +72,40 @@ String extractLastUserMessage(List<dynamic> messages) {
   return '';
 }
 
+const Map<String, Map<String, String>> kSupportedModels = {
+  'gemini': {
+    'display_name': 'Gemini',
+    'url': 'https://gemini.google.com/app',
+  },
+  'gpt': {
+    'display_name': 'ChatGPT',
+    'url': 'https://chatgpt.com/',
+  },
+  'doubao': {
+    'display_name': 'Doubao (豆包)',
+    'url': 'https://www.doubao.com/chat/',
+  },
+  'glm': {
+    'display_name': 'GLM (z.ai)',
+    'url': 'https://chat.z.ai/',
+  },
+  'qwen': {
+    'display_name': 'Qwen (通义千问)',
+    'url': 'https://chat.qwen.ai/',
+  },
+  'kimi': {
+    'display_name': 'Kimi',
+    'url': 'https://www.kimi.com/',
+  },
+  'dola': {
+    'display_name': 'Dola',
+    'url': 'https://www.dola.com/',
+  },
+};
+
+const int kModelCreatedTs = 1700000000;
+const String kModelCreatedAt = '2024-01-01T00:00:00Z';
+
 Middleware customLogRequests() {
   return (Handler innerHandler) {
     return (Request request) async {
@@ -340,6 +374,24 @@ void main() {
         }
         return Response.notFound(
           jsonEncode({"error": "Session not found"}),
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      app.get('/api/models', (Request request) {
+        final modelList = kSupportedModels.entries.map((entry) {
+          final modelId = entry.key;
+          final info = entry.value;
+          return {
+            'id': modelId,
+            'display_name': info['display_name'],
+            'url': info['url'],
+            'connected': extensionWebSockets.containsKey(modelId),
+          };
+        }).toList();
+
+        return Response.ok(
+          jsonEncode({'models': modelList}),
           headers: {'content-type': 'application/json'},
         );
       });
@@ -795,6 +847,52 @@ void main() {
         });
       });
 
+      app.get('/v1/models', (Request request) {
+        final data = kSupportedModels.entries.map((entry) => {
+          'id': entry.key,
+          'object': 'model',
+          'created': kModelCreatedTs,
+          'owned_by': 'web-ai-proxy',
+        }).toList();
+
+        return Response.ok(
+          jsonEncode({'object': 'list', 'data': data}),
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      app.get('/v1/models/<modelId>', (Request request, String modelId) {
+        final internalId = kSupportedModels.containsKey(modelId)
+            ? modelId
+            : (kSupportedModels.containsKey(mapModelName(modelId))
+                ? mapModelName(modelId)
+                : null);
+
+        if (internalId == null) {
+          return Response(
+            404,
+            body: jsonEncode({
+              'error': {
+                'message': "The model '$modelId' does not exist",
+                'type': 'invalid_request_error',
+                'code': 'model_not_found',
+              }
+            }),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        return Response.ok(
+          jsonEncode({
+            'id': internalId,
+            'object': 'model',
+            'created': kModelCreatedTs,
+            'owned_by': 'web-ai-proxy',
+          }),
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
       app.post('/anthropic/v1/messages', (Request request) async {
         // 1. 解析请求体
         final payload = await request.readAsString();
@@ -1035,6 +1133,59 @@ void main() {
 
           await sink.close();
         });
+      });
+
+      app.get('/anthropic/v1/models', (Request request) {
+        final modelIds = kSupportedModels.keys.toList();
+        final data = kSupportedModels.entries.map((entry) => {
+          'type': 'model',
+          'id': entry.key,
+          'display_name': '${entry.value['display_name']} (via Web AI Proxy)',
+          'created_at': kModelCreatedAt,
+        }).toList();
+
+        return Response.ok(
+          jsonEncode({
+            'data': data,
+            'has_more': false,
+            'first_id': modelIds.isNotEmpty ? modelIds.first : null,
+            'last_id': modelIds.isNotEmpty ? modelIds.last : null,
+          }),
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      app.get('/anthropic/v1/models/<modelId>', (Request request, String modelId) {
+        final internalId = kSupportedModels.containsKey(modelId)
+            ? modelId
+            : (kSupportedModels.containsKey(mapModelName(modelId))
+                ? mapModelName(modelId)
+                : null);
+
+        if (internalId == null) {
+          return Response(
+            404,
+            body: jsonEncode({
+              'type': 'error',
+              'error': {
+                'type': 'not_found_error',
+                'message': "Model '$modelId' not found",
+              }
+            }),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        final info = kSupportedModels[internalId]!;
+        return Response.ok(
+          jsonEncode({
+            'type': 'model',
+            'id': internalId,
+            'display_name': '${info['display_name']} (via Web AI Proxy)',
+            'created_at': kModelCreatedAt,
+          }),
+          headers: {'content-type': 'application/json'},
+        );
       });
 
       final handler = const Pipeline()
