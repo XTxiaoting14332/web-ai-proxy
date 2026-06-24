@@ -157,6 +157,10 @@ message = client.messages.create(
 print(message.content[0].text)
 ```
 
+**支持的额外接口：**
+- `GET /v1/models` 以及 `GET /anthropic/v1/models`：获取支持的模型列表（方便在 Open WebUI 或 LobeChat 等 UI 中直接选择模型）。
+- `GET /api/models`：获取内部所有支持的模型，以及当前浏览器插件是否已成功连上它们的状态信息。
+
 ## 🐳Docker 部署
 
 > **硬件推荐**：由于内部集成了 Chromium 浏览器和完整桌面环境，容器运行的常态内存占用约为 500MB。推荐宿主机服务器配置为 **RAM ≥ 1GB**，以防止系统触发 OOM。
