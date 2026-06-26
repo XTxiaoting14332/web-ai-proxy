@@ -124,11 +124,31 @@ Future<void> _humanDelay(int minMs, int maxMs) async {
   await Future.delayed(Duration(milliseconds: delay));
 }
 
+void _clearInputBox(String selector) {
+  try {
+    final el = web.document.querySelector(selector);
+    if (el == null) return;
+    final div = el as web.HTMLElement;
+    div.innerText = '';
+    final eventInit = web.EventInit()
+      ..bubbles = true
+      ..cancelable = true;
+    div.dispatchEvent(web.Event('input', eventInit));
+    div.dispatchEvent(web.Event('change', eventInit));
+    print('[Cleanup] Input box cleared.');
+  } catch (e) {
+    print('[Cleanup] Failed to clear input: $e');
+  }
+}
+
 Future<String?> reqAI(String prompt) async {
   try {
     print("Searching for input area...");
     final inputElement = web.document.querySelector('#prompt-textarea');
-    if (inputElement == null) return "Error: Input element not found!";
+    if (inputElement == null) {
+      _clearInputBox('#prompt-textarea');
+      return "Error: Input element not found!";
+    }
 
     final inputArea = inputElement as web.HTMLElement;
     await _humanDelay(300, 800);
@@ -210,7 +230,10 @@ Future<String?> reqAI(String prompt) async {
     final responseList = web.document.querySelectorAll(
       '[data-message-author-role="assistant"]',
     );
-    if (responseList.length == 0) return "Error: No assistant messages found!";
+    if (responseList.length == 0) {
+      _clearInputBox('#prompt-textarea');
+      return "Error: No assistant messages found!";
+    }
 
     final lastResponse =
         responseList.item(responseList.length - 1) as web.HTMLElement;
@@ -228,8 +251,10 @@ Future<String?> reqAI(String prompt) async {
       return fallbackText;
     }
 
+    _clearInputBox('#prompt-textarea');
     return "Error: Failed to extract text.";
   } catch (e, stackTrace) {
+    _clearInputBox('#prompt-textarea');
     print("Error inside reqAI: $e");
     return "Error caught in script: $e";
   }
@@ -239,6 +264,7 @@ Future<void> reqAIStream(String prompt) async {
   try {
     final inputElement = web.document.querySelector('#prompt-textarea');
     if (inputElement == null) {
+      _clearInputBox('#prompt-textarea');
       ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Input element not found!"}).toJS);
       return;
     }
@@ -324,6 +350,7 @@ Future<void> reqAIStream(String prompt) async {
     }).toJS);
 
   } catch (e) {
+    _clearInputBox('#prompt-textarea');
     ws?.send(jsonEncode({
       "action": "done",
       "url": web.window.location.href,

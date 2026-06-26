@@ -128,6 +128,23 @@ Future<void> _humanDelay(int minMs, int maxMs) async {
   await Future.delayed(Duration(milliseconds: delay));
 }
 
+void _clearInputBox(String selector) {
+  try {
+    final el = web.document.querySelector(selector);
+    if (el == null) return;
+    final textarea = el as web.HTMLTextAreaElement;
+    textarea.value = '';
+    final eventInit = web.EventInit()
+      ..bubbles = true
+      ..cancelable = true;
+    textarea.dispatchEvent(web.Event('input', eventInit));
+    textarea.dispatchEvent(web.Event('change', eventInit));
+    print('[Cleanup] Input box cleared.');
+  } catch (e) {
+    print('[Cleanup] Failed to clear input: $e');
+  }
+}
+
 Future<String?> reqAI(String prompt) async {
   try {
     // Wait for SPA to render the input (chat.qwen.ai/c/ loads asynchronously)
@@ -137,7 +154,10 @@ Future<String?> reqAI(String prompt) async {
       if (inputElement != null) break;
       await Future.delayed(Duration(milliseconds: 500));
     }
-    if (inputElement == null) return jsonEncode({"error": "Input element not found"});
+    if (inputElement == null) {
+      _clearInputBox('.message-input-textarea');
+      return jsonEncode({"error": "Input element not found"});
+    }
 
     final inputArea = inputElement as web.HTMLTextAreaElement;
     await _humanDelay(300, 800);
@@ -168,7 +188,10 @@ Future<String?> reqAI(String prompt) async {
       await Future.delayed(Duration(milliseconds: 200));
     }
 
-    if (sendButton == null) return jsonEncode({"error": "Send button did not become enabled"});
+    if (sendButton == null) {
+      _clearInputBox('.message-input-textarea');
+      return jsonEncode({"error": "Send button did not become enabled"});
+    }
 
     // Record response count before sending
     final initialCount = web.document.querySelectorAll('.qwen-markdown').length;
@@ -224,6 +247,7 @@ Future<String?> reqAI(String prompt) async {
 
     final responseList = web.document.querySelectorAll('.qwen-markdown');
     if (responseList.length <= initialCount) {
+      _clearInputBox('.message-input-textarea');
       return jsonEncode({"error": "No response received"});
     }
 
@@ -232,6 +256,7 @@ Future<String?> reqAI(String prompt) async {
     final cleanText = lastResponse.innerText.trim();
     return cleanText.isNotEmpty ? cleanText : lastText;
   } catch (e) {
+    _clearInputBox('.message-input-textarea');
     print("Error in reqAI: $e");
     return jsonEncode({"error": e.toString()});
   }
@@ -246,6 +271,7 @@ Future<void> reqAIStream(String prompt) async {
       await Future.delayed(Duration(milliseconds: 500));
     }
     if (inputElement == null) {
+      _clearInputBox('.message-input-textarea');
       ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Input element not found"}).toJS);
       return;
     }
@@ -278,6 +304,7 @@ Future<void> reqAIStream(String prompt) async {
     }
 
     if (sendButton == null) {
+      _clearInputBox('.message-input-textarea');
       ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Send button did not become enabled"}).toJS);
       return;
     }
@@ -346,6 +373,7 @@ Future<void> reqAIStream(String prompt) async {
     }).toJS);
 
   } catch (e) {
+    _clearInputBox('.message-input-textarea');
     ws?.send(jsonEncode({
       "action": "done",
       "url": web.window.location.href,

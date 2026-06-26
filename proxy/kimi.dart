@@ -128,11 +128,31 @@ Future<void> _humanDelay(int minMs, int maxMs) async {
   await Future.delayed(Duration(milliseconds: delay));
 }
 
+void _clearInputBox(String selector) {
+  try {
+    final el = web.document.querySelector(selector);
+    if (el == null) return;
+    final div = el as web.HTMLElement;
+    div.innerText = '';
+    final eventInit = web.EventInit()
+      ..bubbles = true
+      ..cancelable = true;
+    div.dispatchEvent(web.Event('input', eventInit));
+    div.dispatchEvent(web.Event('change', eventInit));
+    print('[Cleanup] Input box cleared.');
+  } catch (e) {
+    print('[Cleanup] Failed to clear input: $e');
+  }
+}
+
 Future<String?> reqAI(String prompt) async {
   try {
     // Kimi uses a Lexical contenteditable div — must use CDP keyboard input
     final inputElement = web.document.querySelector('.chat-input-editor');
-    if (inputElement == null) return jsonEncode({"error": "Input element not found"});
+    if (inputElement == null) {
+      _clearInputBox('.chat-input-editor');
+      return jsonEncode({"error": "Input element not found"});
+    }
 
     final inputArea = inputElement as web.HTMLElement;
     await _humanDelay(300, 800);
@@ -213,6 +233,7 @@ Future<String?> reqAI(String prompt) async {
 
     final responseList = web.document.querySelectorAll('.markdown-container');
     if (responseList.length <= initialCount) {
+      _clearInputBox('.chat-input-editor');
       return jsonEncode({"error": "No response received"});
     }
 
@@ -221,6 +242,7 @@ Future<String?> reqAI(String prompt) async {
     final cleanText = lastResponse.innerText.trim();
     return cleanText.isNotEmpty ? cleanText : lastText;
   } catch (e) {
+    _clearInputBox('.chat-input-editor');
     print("Error in reqAI: $e");
     return jsonEncode({"error": e.toString()});
   }
@@ -230,6 +252,7 @@ Future<void> reqAIStream(String prompt) async {
   try {
     final inputElement = web.document.querySelector('.chat-input-editor');
     if (inputElement == null) {
+      _clearInputBox('.chat-input-editor');
       ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Input element not found"}).toJS);
       return;
     }
@@ -324,6 +347,7 @@ Future<void> reqAIStream(String prompt) async {
     }).toJS);
 
   } catch (e) {
+    _clearInputBox('.chat-input-editor');
     ws?.send(jsonEncode({
       "action": "done",
       "url": web.window.location.href,

@@ -139,6 +139,23 @@ Future<void> _humanDelay(int minMs, int maxMs) async {
   await Future.delayed(Duration(milliseconds: delay));
 }
 
+void _clearInputBox(String selector) {
+  try {
+    final el = web.document.querySelector(selector);
+    if (el == null) return;
+    final textarea = el as web.HTMLTextAreaElement;
+    textarea.value = '';
+    final eventInit = web.EventInit()
+      ..bubbles = true
+      ..cancelable = true;
+    textarea.dispatchEvent(web.Event('input', eventInit));
+    textarea.dispatchEvent(web.Event('change', eventInit));
+    print('[Cleanup] Input box cleared.');
+  } catch (e) {
+    print('[Cleanup] Failed to clear input: $e');
+  }
+}
+
 Future<String?> reqAI(String prompt) async {
   try {
     print("[DOUBAO-DEBUG] reqAI START");
@@ -154,6 +171,7 @@ Future<String?> reqAI(String prompt) async {
       await Future.delayed(Duration(milliseconds: 500));
     }
     if (inputElement == null) {
+      _clearInputBox('.semi-input-textarea');
       return "Error: Input element not found.";
     }
 
@@ -295,11 +313,14 @@ Future<String?> reqAI(String prompt) async {
       print(
         "[DOUBAO-DEBUG] Body text grew by ${bodyTextAfter.length - bodyTextBefore.length} chars, returning diff",
       );
+      _clearInputBox('.semi-input-textarea');
       return "Error: Could not extract response cleanly. Body text length: ${bodyTextAfter.length}";
     }
 
+    _clearInputBox('.semi-input-textarea');
     return "Error: No response detected.";
   } catch (e, stackTrace) {
+    _clearInputBox('.semi-input-textarea');
     print("[DOUBAO-DEBUG] EXCEPTION: $e");
     return "Error caught in script: $e";
   }
@@ -316,6 +337,7 @@ Future<void> reqAIStream(String prompt) async {
       await Future.delayed(Duration(milliseconds: 500));
     }
     if (inputElement == null) {
+      _clearInputBox('.semi-input-textarea');
       ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Input element not found."}).toJS);
       return;
     }
@@ -417,6 +439,7 @@ Future<void> reqAIStream(String prompt) async {
     }).toJS);
 
   } catch (e) {
+    _clearInputBox('.semi-input-textarea');
     ws?.send(jsonEncode({
       "action": "done",
       "url": web.window.location.href,

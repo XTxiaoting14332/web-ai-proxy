@@ -131,12 +131,31 @@ Future<void> _humanDelay(int minMs, int maxMs) async {
   await Future.delayed(Duration(milliseconds: delay));
 }
 
+void _clearInputBox(String selector) {
+  try {
+    final el = web.document.querySelector(selector);
+    if (el == null) return;
+    final textarea = el as web.HTMLTextAreaElement;
+    textarea.value = '';
+    final eventInit = web.EventInit()
+      ..bubbles = true
+      ..cancelable = true;
+    textarea.dispatchEvent(web.Event('input', eventInit));
+    textarea.dispatchEvent(web.Event('change', eventInit));
+    print('[Cleanup] Input box cleared.');
+  } catch (e) {
+    print('[Cleanup] Failed to clear input: $e');
+  }
+}
+
 Future<String?> reqAI(String prompt) async {
   try {
     print("Searching for input area...");
     final inputElement = web.document.querySelector('#chat-input');
-    if (inputElement == null)
+    if (inputElement == null) {
+      _clearInputBox('#chat-input');
       return jsonEncode({"error": "Input element not found"});
+    }
 
     final inputArea = inputElement as web.HTMLTextAreaElement;
     await _humanDelay(300, 800);
@@ -159,8 +178,10 @@ Future<String?> reqAI(String prompt) async {
         web.document.querySelector('button[class*="send"]') ??
         web.document.querySelector('div[class*="send"]');
 
-    if (sendButtonElement == null)
+    if (sendButtonElement == null) {
+      _clearInputBox('#chat-input');
       return jsonEncode({"error": "Send button element not found"});
+    }
 
     // Record initial assistant count before sending
     final initialAssistants = web.document.querySelectorAll('.chat-assistant');
@@ -240,8 +261,10 @@ Future<String?> reqAI(String prompt) async {
     }
 
     final assistantMessages = web.document.querySelectorAll('.chat-assistant');
-    if (assistantMessages.length == 0)
+    if (assistantMessages.length == 0) {
+      _clearInputBox('#chat-input');
       return jsonEncode({"error": "No assistant messages found"});
+    }
 
     final lastAssistant =
         assistantMessages.item(assistantMessages.length - 1) as web.HTMLElement;
@@ -249,6 +272,7 @@ Future<String?> reqAI(String prompt) async {
     final markdownProse =
         lastAssistant.querySelector('.markdown-prose') as web.HTMLElement?;
     if (markdownProse == null) {
+      _clearInputBox('#chat-input');
       return jsonEncode({"error": ".markdown-prose container not found"});
     }
 
@@ -305,6 +329,7 @@ Future<String?> reqAI(String prompt) async {
 
     return jsonEncode(responseMap);
   } catch (e, stackTrace) {
+    _clearInputBox('#chat-input');
     print("Error inside reqAI: $e");
     return jsonEncode({"error": e.toString()});
   }
@@ -314,6 +339,7 @@ Future<void> reqAIStream(String prompt) async {
   try {
     final inputElement = web.document.querySelector('#chat-input');
     if (inputElement == null) {
+      _clearInputBox('#chat-input');
       ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Input element not found"}).toJS);
       return;
     }
@@ -338,6 +364,7 @@ Future<void> reqAIStream(String prompt) async {
         web.document.querySelector('div[class*="send"]');
 
     if (sendButtonElement == null) {
+      _clearInputBox('#chat-input');
       ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Send button element not found"}).toJS);
       return;
     }
@@ -460,6 +487,7 @@ Future<void> reqAIStream(String prompt) async {
     }).toJS);
 
   } catch (e) {
+    _clearInputBox('#chat-input');
     ws?.send(jsonEncode({
       "action": "done",
       "url": web.window.location.href,

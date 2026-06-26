@@ -118,10 +118,30 @@ Future<void> _humanDelay(int minMs, int maxMs) async {
   await Future.delayed(Duration(milliseconds: delay));
 }
 
+void _clearInputBox(String selector) {
+  try {
+    final el = web.document.querySelector(selector);
+    if (el == null) return;
+    final textarea = el as web.HTMLTextAreaElement;
+    textarea.value = '';
+    final eventInit = web.EventInit()
+      ..bubbles = true
+      ..cancelable = true;
+    textarea.dispatchEvent(web.Event('input', eventInit));
+    textarea.dispatchEvent(web.Event('change', eventInit));
+    print('[Cleanup] Input box cleared.');
+  } catch (e) {
+    print('[Cleanup] Failed to clear input: $e');
+  }
+}
+
 Future<String?> reqAI(String prompt) async {
   try {
     final inputElement = web.document.querySelector('.semi-input-textarea');
-    if (inputElement == null) return "Error: Input element not found.";
+    if (inputElement == null) {
+      _clearInputBox('.semi-input-textarea');
+      return "Error: Input element not found.";
+    }
 
     final inputArea = inputElement as web.HTMLElement;
     await _humanDelay(300, 800);
@@ -205,6 +225,7 @@ Future<String?> reqAI(String prompt) async {
 
     return lastText;
   } catch (e, stackTrace) {
+    _clearInputBox('.semi-input-textarea');
     return "Error caught in script: $e";
   }
 }

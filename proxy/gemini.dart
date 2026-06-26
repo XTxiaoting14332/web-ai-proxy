@@ -124,13 +124,33 @@ Future<void> _humanDelay(int minMs, int maxMs) async {
   await Future.delayed(Duration(milliseconds: delay));
 }
 
+void _clearInputBox(String selector) {
+  try {
+    final el = web.document.querySelector(selector);
+    if (el == null) return;
+    final div = el as web.HTMLElement;
+    div.innerText = '';
+    final eventInit = web.EventInit()
+      ..bubbles = true
+      ..cancelable = true;
+    div.dispatchEvent(web.Event('input', eventInit));
+    div.dispatchEvent(web.Event('change', eventInit));
+    print('[Cleanup] Input box cleared.');
+  } catch (e) {
+    print('[Cleanup] Failed to clear input: $e');
+  }
+}
+
 Future<String?> reqAI(String prompt) async {
   try {
     print("Searching for input area...");
     final inputElement = web.document.querySelector(
       'div[data-placeholder*="Gemini"]',
     );
-    if (inputElement == null) return "Error: Input element not found!";
+    if (inputElement == null) {
+      _clearInputBox('div[data-placeholder*="Gemini"]');
+      return "Error: Input element not found!";
+    }
 
     final inputArea = inputElement as web.HTMLElement;
     await _humanDelay(300, 800);
@@ -206,8 +226,10 @@ Future<String?> reqAI(String prompt) async {
 
     // 5. 提取所有回复容器并进行逆序清洗
     final responseList = web.document.querySelectorAll('model-response');
-    if (responseList.length == 0)
+    if (responseList.length == 0) {
+      _clearInputBox('div[data-placeholder*="Gemini"]');
       return "Error: No model-response elements found!";
+    }
 
     web.HTMLElement? lastResponse;
     for (int i = responseList.length - 1; i >= 0; i--) {
@@ -249,9 +271,11 @@ Future<String?> reqAI(String prompt) async {
       return fallbackText;
     }
 
+    _clearInputBox('div[data-placeholder*="Gemini"]');
     return "Error: Failed to extract text. Raw content: " +
         lastResponse.innerText;
   } catch (e, stackTrace) {
+    _clearInputBox('div[data-placeholder*="Gemini"]');
     print("Error inside reqAI: $e");
     return "Error caught in script: $e";
   }
@@ -261,6 +285,7 @@ Future<void> reqAIStream(String prompt) async {
   try {
     final inputElement = web.document.querySelector('div[data-placeholder*="Gemini"]');
     if (inputElement == null) {
+      _clearInputBox('div[data-placeholder*="Gemini"]');
       ws?.send(jsonEncode({"action": "done", "url": web.window.location.href, "response": "Error: Input element not found!"}).toJS);
       return;
     }
@@ -344,6 +369,7 @@ Future<void> reqAIStream(String prompt) async {
     }).toJS);
 
   } catch (e) {
+    _clearInputBox('div[data-placeholder*="Gemini"]');
     ws?.send(jsonEncode({
       "action": "done",
       "url": web.window.location.href,
